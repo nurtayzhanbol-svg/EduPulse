@@ -1,0 +1,1602 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EduPulse — Student Workspace</title>
+    <link
+        href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,700;0,900;1,700&family=Source+Sans+3:wght@300;400;500;600&family=JetBrains+Mono:wght@400;500&display=swap"
+        rel="stylesheet">
+    <style>
+        :root {
+            --cream: #f6f8fc;
+            --ivory: #ffffff;
+            --warm: #eef2fb;
+            --navy: #1a2744;
+            --navy-mid: #2c3e6b;
+            --teal: #1a7a6e;
+            --teal-lt: #209586;
+            --teal-pale: rgba(26, 122, 110, .1);
+            --amber: #c97010;
+            --amber-pale: rgba(201, 112, 16, .12);
+            --red: #b83232;
+            --red-pale: rgba(184, 50, 50, .1);
+            --text: #1a1b2e;
+            --text-mid: #4b5678;
+            --text-dim: #7c86a5;
+            --border: #d8e0f0;
+            --border-lt: #e8edf7;
+            --shadow: 0 1px 8px rgba(26, 39, 68, .08);
+            --shadow-md: 0 4px 24px rgba(26, 39, 68, .12);
+            --shadow-lg: 0 8px 48px rgba(26, 39, 68, .16);
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box
+        }
+
+        body {
+            font-family: 'Source Sans 3', sans-serif;
+            background: var(--cream);
+            color: var(--text);
+            height: 100vh;
+            overflow: hidden;
+            font-size: 16px;
+            -webkit-font-smoothing: antialiased
+        }
+
+        /* NAV */
+        .nav {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            z-index: 100;
+            background: rgba(255, 255, 255, .95);
+            backdrop-filter: blur(20px);
+            border-bottom: 1px solid var(--border);
+            height: 58px;
+            display: flex;
+            align-items: center;
+            padding: 0 1.75rem;
+            gap: 14px
+        }
+
+        .nav-logo {
+            display: flex;
+            align-items: center;
+            gap: 9px;
+            text-decoration: none;
+            flex-shrink: 0
+        }
+
+        .logo-mark {
+            width: 30px;
+            height: 30px;
+            background: #2c3e6b;
+            border-radius: 7px;
+            display: flex;
+            align-items: center;
+            justify-content: center
+        }
+
+        .logo-text {
+            font-family: 'Playfair Display', serif;
+            font-size: 1.1rem;
+            font-weight: 700;
+            color: var(--navy)
+        }
+
+        .logo-text em {
+            color: var(--teal);
+            font-style: normal
+        }
+
+        .nav-divider {
+            width: 1px;
+            height: 24px;
+            background: var(--border);
+            flex-shrink: 0
+        }
+
+        .session-chip {
+            font-size: .75rem;
+            font-weight: 600;
+            color: var(--teal);
+            background: rgba(26, 122, 110, .08);
+            border: 1px solid rgba(26, 122, 110, .2);
+            border-radius: 20px;
+            padding: 3px 12px;
+            letter-spacing: .05em
+        }
+
+        .student-name {
+            font-size: .88rem;
+            font-weight: 600;
+            color: var(--text-mid)
+        }
+
+        .nav-spacer {
+            flex: 1
+        }
+
+        .conn-chip {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            font-size: .75rem;
+            color: var(--text-dim);
+            font-weight: 500
+        }
+
+        .conn-dot {
+            width: 7px;
+            height: 7px;
+            border-radius: 50%;
+            background: var(--text-dim)
+        }
+
+        .conn-dot.teal {
+            background: var(--teal);
+            animation: blink 2s infinite
+        }
+
+        .conn-dot.amber {
+            background: var(--amber)
+        }
+
+        .conn-dot.red {
+            background: var(--red)
+        }
+
+        @keyframes blink {
+
+            0%,
+            100% {
+                opacity: 1
+            }
+
+            50% {
+                opacity: .25
+            }
+        }
+
+        /* JOIN SCREEN */
+        #joinScreen {
+            position: fixed;
+            inset: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 2rem;
+            z-index: 50;
+            background: var(--cream)
+        }
+
+        .join-card {
+            background: var(--ivory);
+            border: 1px solid var(--border);
+            border-radius: 18px;
+            box-shadow: var(--shadow-lg);
+            padding: 2.5rem;
+            max-width: 440px;
+            width: 100%;
+            animation: riseUp .45s ease both
+        }
+
+        @keyframes riseUp {
+            from {
+                opacity: 0;
+                transform: translateY(18px)
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0)
+            }
+        }
+
+        .join-brand {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 2rem
+        }
+
+        .join-brand-text {
+            font-family: 'Playfair Display', serif;
+            font-size: 1.2rem;
+            font-weight: 700;
+            color: var(--navy)
+        }
+
+        .join-brand-text em {
+            color: var(--teal);
+            font-style: normal
+        }
+
+        .join-title {
+            font-family: 'Playfair Display', serif;
+            font-size: 1.55rem;
+            font-weight: 900;
+            color: var(--navy);
+            margin-bottom: .4rem
+        }
+
+        .join-sub {
+            font-size: .88rem;
+            color: var(--text-mid);
+            margin-bottom: 1.75rem;
+            line-height: 1.65
+        }
+
+        .form-label {
+            display: block;
+            font-size: .78rem;
+            font-weight: 600;
+            color: var(--text-mid);
+            letter-spacing: .05em;
+            text-transform: uppercase;
+            margin-bottom: 6px
+        }
+
+        .form-input {
+            width: 100%;
+            background: var(--cream);
+            border: 1.5px solid var(--border);
+            border-radius: 8px;
+            padding: 11px 14px;
+            color: var(--text);
+            font-family: 'Source Sans 3', sans-serif;
+            font-size: .92rem;
+            outline: none;
+            transition: border-color .18s;
+            margin-bottom: 1.1rem
+        }
+
+        .form-input:focus {
+            border-color: var(--teal)
+        }
+
+        .form-input.mono {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: .95rem;
+            letter-spacing: .12em
+        }
+
+        .join-btn {
+            width: 100%;
+            padding: 13px;
+            background: var(--navy);
+            border: none;
+            border-radius: 9px;
+            color: #fff;
+            font-family: 'Source Sans 3', sans-serif;
+            font-weight: 700;
+            font-size: .95rem;
+            cursor: pointer;
+            transition: all .2s;
+            box-shadow: 0 2px 12px rgba(26, 39, 68, .28);
+            margin-top: .5rem
+        }
+
+        .join-btn:hover {
+            background: var(--navy-mid);
+            transform: translateY(-1px);
+            box-shadow: var(--shadow-md)
+        }
+
+        .err-msg {
+            font-size: .8rem;
+            color: var(--red);
+            margin-top: .5rem;
+            display: none
+        }
+
+        /* WORKSPACE */
+        #workspace {
+            display: none;
+            padding-top: 58px;
+            height: 100vh
+        }
+
+        .workspace-layout {
+            display: grid;
+            grid-template-columns: 390px minmax(0, 1fr);
+            height: calc(100vh - 58px)
+        }
+
+        /* LEFT PANEL */
+        .left-panel {
+            background: var(--ivory);
+            border-right: 1px solid var(--border);
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            box-shadow: 2px 0 12px rgba(26, 39, 68, .05)
+        }
+
+        .lp-header {
+            padding: 1.35rem 1.5rem;
+            border-bottom: 1px solid var(--border-lt);
+            flex-shrink: 0
+        }
+
+        .lp-session {
+            font-size: .68rem;
+            font-weight: 700;
+            color: var(--teal);
+            letter-spacing: .1em;
+            text-transform: uppercase;
+            margin-bottom: 5px
+        }
+
+        .lp-title {
+            font-family: 'Playfair Display', serif;
+            font-size: 1.2rem;
+            font-weight: 700;
+            color: var(--navy);
+            line-height: 1.2
+        }
+
+        .lp-meta {
+            font-size: .76rem;
+            color: var(--text-dim);
+            margin-top: 3px
+        }
+
+        /* COMPLETION BAR */
+        .completion-section {
+            padding: 1rem 1.4rem;
+            border-bottom: 1px solid var(--border-lt);
+            flex-shrink: 0;
+        }
+
+        .completion-lbl {
+            font-size: .68rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: .08em;
+            color: var(--text-dim);
+            margin-bottom: 9px;
+            display: flex;
+            justify-content: space-between;
+        }
+
+        .completion-track {
+            height: 6px;
+            background: var(--border-lt);
+            border-radius: 3px;
+            overflow: hidden;
+            margin-bottom: 4px;
+        }
+
+        .completion-fill {
+            height: 100%;
+            background: var(--teal);
+            width: 0%;
+            transition: width 0.3s ease;
+        }
+
+        /* TASK LIST */
+        .task-scroll {
+            flex: 1;
+            overflow-y: auto;
+            padding: 1.15rem 1.5rem
+        }
+
+        .task-scroll::-webkit-scrollbar {
+            width: 3px
+        }
+
+        .task-scroll::-webkit-scrollbar-thumb {
+            background: var(--border);
+            border-radius: 2px
+        }
+
+        .tasks-lbl {
+            font-size: .68rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: .08em;
+            color: var(--text-dim);
+            margin-bottom: 9px
+        }
+
+        .task-item {
+            padding: 13px 14px;
+            border-radius: 10px;
+            border: 1.5px solid var(--border-lt);
+            margin-bottom: 10px;
+            cursor: pointer;
+            transition: all .18s;
+            background: transparent
+        }
+
+        .task-item:hover {
+            border-color: var(--border);
+            background: var(--cream)
+        }
+
+        .task-item.active {
+            border-color: var(--teal);
+            background: rgba(26, 122, 110, .05)
+        }
+
+        .task-item.done {
+            opacity: .6
+        }
+
+        .ti-head {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 3px
+        }
+
+        .ti-num {
+            font-size: .66rem;
+            font-weight: 700;
+            color: var(--text-dim);
+            letter-spacing: .05em
+        }
+
+        .ti-check {
+            width: 18px;
+            height: 18px;
+            border-radius: 5px;
+            border: 1.5px solid var(--border);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: .62rem;
+            flex-shrink: 0;
+            transition: all .18s
+        }
+
+        .ti-check.done {
+            background: var(--teal);
+            border-color: var(--teal);
+            color: #fff
+        }
+
+        .ti-name {
+            font-size: .93rem;
+            font-weight: 700;
+            color: var(--navy)
+        }
+
+        .ti-desc {
+            font-size: .8rem;
+            color: var(--text-mid);
+            line-height: 1.55;
+            margin-top: 4px
+        }
+
+        /* ACTIONS */
+        .lp-actions {
+            padding: 1rem 1.4rem;
+            border-top: 1px solid var(--border-lt);
+            flex-shrink: 0;
+            display: flex;
+            flex-direction: column;
+            gap: 8px
+        }
+
+        .help-btn {
+            width: 100%;
+            padding: 10px;
+            background: var(--amber-pale);
+            border: 1.5px solid rgba(201, 112, 16, .25);
+            border-radius: 9px;
+            color: var(--amber);
+            font-family: 'Source Sans 3', sans-serif;
+            font-weight: 700;
+            font-size: .85rem;
+            cursor: pointer;
+            transition: all .18s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px
+        }
+
+        .help-btn:hover {
+            background: rgba(201, 112, 16, .13)
+        }
+
+        .submit-btn {
+            width: 100%;
+            padding: 10px;
+            background: var(--teal);
+            border: none;
+            border-radius: 9px;
+            color: #fff;
+            font-family: 'Source Sans 3', sans-serif;
+            font-weight: 700;
+            font-size: .88rem;
+            cursor: pointer;
+            transition: all .2s;
+            box-shadow: 0 2px 10px rgba(26, 122, 110, .28)
+        }
+
+        .submit-btn:hover {
+            background: var(--teal-lt);
+            transform: translateY(-1px);
+            box-shadow: 0 4px 18px rgba(26, 122, 110, .32)
+        }
+
+        .submit-btn:disabled {
+            opacity: .5;
+            cursor: default;
+            transform: none;
+            box-shadow: none
+        }
+
+        /* EDITOR */
+        .editor-area {
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            background: var(--cream)
+        }
+
+        .editor-topbar {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 1.25rem;
+            height: 40px;
+            border-bottom: 1px solid var(--border);
+            background: var(--ivory);
+            flex-shrink: 0
+        }
+
+        .editor-tabs {
+            display: flex;
+            gap: 2px
+        }
+
+        .etab {
+            padding: 5px 14px;
+            border-radius: 7px;
+            font-size: .78rem;
+            font-weight: 600;
+            cursor: pointer;
+            border: none;
+            background: transparent;
+            color: var(--text-dim);
+            font-family: 'Source Sans 3', sans-serif;
+            transition: all .15s
+        }
+
+        .etab.active {
+            background: var(--ivory);
+            color: var(--navy);
+            box-shadow: var(--shadow)
+        }
+
+        .indicators {
+            display: flex;
+            gap: 12px;
+            align-items: center
+        }
+
+        .ind {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            font-size: .72rem;
+            color: var(--text-dim);
+            font-weight: 500
+        }
+
+        .ind-dot {
+            width: 6px;
+            height: 6px;
+            border-radius: 50%
+        }
+
+        .ind-dot.teal {
+            background: var(--teal);
+            animation: blink 2s infinite
+        }
+
+        .ind-dot.amber {
+            background: var(--amber)
+        }
+
+        .code-area-wrap {
+            flex: 1;
+            display: flex;
+            overflow: hidden;
+            background: var(--ivory)
+        }
+
+        .line-nums {
+            padding: 1rem 12px 1rem 14px;
+            background: var(--ivory);
+            border-right: 1px solid var(--border-lt);
+            min-width: 48px;
+            overflow: hidden;
+            flex-shrink: 0
+        }
+
+        .ln {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: .75rem;
+            color: var(--text-dim);
+            line-height: 1.62;
+            height: 1.62em;
+            text-align: right;
+            user-select: none;
+            opacity: .55
+        }
+
+        .code-ta {
+            flex: 1;
+            resize: none;
+            border: none;
+            outline: none;
+            background: transparent;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: .9rem;
+            color: var(--text);
+            line-height: 1.62;
+            padding: 1.15rem 1.4rem;
+            overflow-y: auto;
+            tab-size: 2;
+            caret-color: var(--teal)
+        }
+
+        @media (max-width: 1100px) {
+            .workspace-layout {
+                grid-template-columns: 340px minmax(0, 1fr)
+            }
+        }
+
+        .code-ta::-webkit-scrollbar {
+            width: 4px
+        }
+
+        .code-ta::-webkit-scrollbar-thumb {
+            background: var(--border);
+            border-radius: 2px
+        }
+
+        .status-bar {
+            flex-shrink: 0;
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+            padding: 5px 1.25rem;
+            border-top: 1px solid var(--border-lt);
+            background: var(--ivory);
+            font-size: .7rem;
+            color: var(--text-dim);
+            font-weight: 500
+        }
+
+        .sb-item {
+            display: flex;
+            align-items: center;
+            gap: 5px
+        }
+
+        .sb-dot {
+            width: 5px;
+            height: 5px;
+            border-radius: 50%
+        }
+
+        .sb-dot.teal {
+            background: var(--teal);
+            animation: blink 2s infinite
+        }
+
+        .sb-sep {
+            opacity: .25;
+            font-size: .8rem
+        }
+
+        /* HINT TOAST */
+        .hint-toast {
+            position: fixed;
+            bottom: 1.75rem;
+            right: 1.75rem;
+            background: var(--ivory);
+            border: 1.5px solid rgba(26, 122, 110, .3);
+            border-radius: 14px;
+            padding: 1.1rem 1.3rem;
+            max-width: 360px;
+            z-index: 200;
+            box-shadow: var(--shadow-lg);
+            display: none
+        }
+
+        .hint-toast.show {
+            display: block;
+            animation: riseUp .38s cubic-bezier(.34, 1.5, .64, 1) both
+        }
+
+        .ht-head {
+            display: flex;
+            align-items: center;
+            gap: 9px;
+            margin-bottom: 9px
+        }
+
+        .ht-icon {
+            display: flex;
+            align-items: center
+        }
+
+        .ht-title {
+            font-size: .85rem;
+            font-weight: 700;
+            color: var(--teal)
+        }
+
+        .ht-level {
+            font-size: .68rem;
+            font-weight: 600;
+            color: var(--text-dim);
+            margin-left: auto;
+            text-transform: uppercase;
+            letter-spacing: .06em
+        }
+
+        .ht-body {
+            font-size: .82rem;
+            color: var(--text-mid);
+            line-height: 1.68
+        }
+
+        .ht-body code {
+            color: var(--teal);
+            font-family: 'JetBrains Mono', monospace;
+            background: rgba(26, 122, 110, .08);
+            padding: 1px 5px;
+            border-radius: 4px;
+            font-size: .78rem
+        }
+
+        .ht-close {
+            position: absolute;
+            top: 9px;
+            right: 12px;
+            background: none;
+            border: none;
+            color: var(--text-dim);
+            cursor: pointer;
+            font-size: 1.1rem;
+            line-height: 1;
+            transition: color .15s
+        }
+
+        .ht-close:hover {
+            color: var(--text)
+        }
+
+        .ht-more {
+            margin-top: 10px;
+            padding: 7px 16px;
+            background: rgba(26, 122, 110, .08);
+            border: 1px solid rgba(26, 122, 110, .2);
+            border-radius: 7px;
+            color: var(--teal);
+            font-family: 'Source Sans 3', sans-serif;
+            font-weight: 700;
+            font-size: .78rem;
+            cursor: pointer;
+            transition: all .18s
+        }
+
+        .ht-more:hover {
+            background: rgba(26, 122, 110, .14)
+        }
+
+        /* MODAL */
+        .modal-overlay {
+            position: fixed;
+            inset: 0;
+            z-index: 300;
+            background: rgba(26, 27, 46, .5);
+            backdrop-filter: blur(8px);
+            display: none;
+            align-items: center;
+            justify-content: center;
+            padding: 2rem
+        }
+
+        .modal-overlay.show {
+            display: flex
+        }
+
+        .modal {
+            background: var(--ivory);
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            padding: 2rem;
+            max-width: 460px;
+            width: 100%;
+            box-shadow: var(--shadow-lg);
+            animation: riseUp .3s ease
+        }
+
+        .modal-title {
+            font-family: 'Playfair Display', serif;
+            font-size: 1.25rem;
+            font-weight: 900;
+            color: var(--navy);
+            margin-bottom: .4rem
+        }
+
+        .modal-sub {
+            font-size: .85rem;
+            color: var(--text-mid);
+            margin-bottom: 1.4rem;
+            line-height: 1.65
+        }
+
+        .modal-ta {
+            width: 100%;
+            background: var(--cream);
+            border: 1.5px solid var(--border);
+            border-radius: 9px;
+            padding: 11px 13px;
+            color: var(--text);
+            font-family: 'Source Sans 3', sans-serif;
+            font-size: .88rem;
+            resize: none;
+            outline: none;
+            transition: border-color .18s;
+            margin-bottom: 1.1rem
+        }
+
+        .modal-ta:focus {
+            border-color: var(--teal)
+        }
+
+        .modal-btns {
+            display: flex;
+            gap: 8px;
+            justify-content: flex-end
+        }
+
+        .modal-cancel {
+            padding: 9px 20px;
+            background: transparent;
+            border: 1.5px solid var(--border);
+            border-radius: 8px;
+            color: var(--text-mid);
+            cursor: pointer;
+            font-family: 'Source Sans 3', sans-serif;
+            font-weight: 600;
+            font-size: .85rem;
+            transition: all .15s
+        }
+
+        .modal-cancel:hover {
+            border-color: var(--navy);
+            color: var(--navy)
+        }
+
+        .modal-submit {
+            padding: 9px 22px;
+            background: var(--teal);
+            border: none;
+            border-radius: 8px;
+            color: #fff;
+            cursor: pointer;
+            font-family: 'Source Sans 3', sans-serif;
+            font-weight: 700;
+            font-size: .85rem;
+            transition: all .18s
+        }
+
+        .modal-submit:hover {
+            background: var(--teal-lt)
+        }
+
+        /* SUCCESS OVERLAY */
+        .success-overlay {
+            position: fixed;
+            inset: 0;
+            z-index: 400;
+            background: rgba(10, 14, 24, .88);
+            backdrop-filter: blur(8px);
+            display: none;
+            align-items: center;
+            justify-content: center
+        }
+
+        .success-overlay.show {
+            display: flex
+        }
+
+        .success-card {
+            text-align: center;
+            animation: riseUp .4s ease
+        }
+
+        .success-icon {
+            margin-bottom: 1rem;
+            display: flex;
+            justify-content: center
+        }
+
+        .success-title {
+            font-family: 'Playfair Display', serif;
+            font-size: 2rem;
+            font-weight: 900;
+            color: var(--teal);
+            margin-bottom: .5rem
+        }
+
+        .success-sub {
+            font-size: .92rem;
+            color: var(--text-mid)
+        }
+    </style>
+</head>
+
+<body>
+
+    <nav class="nav">
+        <a href="index.html" class="nav-logo">
+            <div class="logo-mark"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#fff"
+                    stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M12 2L2 7l10 5 10-5-10-5z" />
+                    <path d="M2 17l10 5 10-5" />
+                    <path d="M2 12l10 5 10-5" />
+                </svg></div>
+            <span class="logo-text">Edu<em>Pulse</em></span>
+        </a>
+        <div class="nav-divider"></div>
+        <div class="session-chip" id="navSession" style="display:none">—</div>
+        <div class="student-name" id="navName"></div>
+        <div class="nav-spacer"></div>
+    </nav>
+
+    <!-- JOIN SCREEN -->
+    <div id="joinScreen">
+        <div class="join-card">
+            <div class="join-brand">
+                <div class="logo-mark"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#fff"
+                        stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M12 2L2 7l10 5 10-5-10-5z" />
+                        <path d="M2 17l10 5 10-5" />
+                        <path d="M2 12l10 5 10-5" />
+                    </svg></div>
+                <span class="join-brand-text">Edu<em>Pulse</em></span>
+            </div>
+            <div class="join-title">Join Lab Session</div>
+            <div class="join-sub">Paste your teacher's full session link to open workspace instantly.</div>
+            <label class="form-label">Session Link</label>
+            <input class="form-input" id="inputSessionLink"
+                placeholder="e.g. https://.../student.html?session=a4682895" />
+            <label class="form-label">Your Name</label>
+            <input class="form-input" id="inputStudentName" placeholder="Enter your name" />
+            <div class="err-msg" id="errMsg">Please enter a valid session link and name.</div>
+            <div id="joinError"
+                style="display:none;color:var(--red);font-size:.83rem;margin-bottom:.5rem;font-weight:600"></div>
+            <button class="join-btn" onclick="joinSession()">Join Session →</button>
+        </div>
+    </div>
+
+    <!-- WORKSPACE -->
+    <div id="workspace">
+        <div class="workspace-layout">
+
+            <!-- LEFT PANEL -->
+            <div class="left-panel">
+                <div class="lp-header">
+                    <div class="lp-session" id="lpSession">SESSION —</div>
+                    <div class="lp-title" id="taskHeadline">AI Task from Class Material</div>
+                    <div class="lp-meta" id="lpMeta">CS101</div>
+                </div>
+
+                <div class="completion-section">
+                    <div class="completion-lbl">
+                        <span>Completion</span>
+                        <span id="completionText">0%</span>
+                    </div>
+                    <div class="completion-track">
+                        <div class="completion-fill" id="completionFill"></div>
+                    </div>
+                </div>
+
+                <div class="task-scroll">
+                    <div class="tasks-lbl">Tasks</div>
+                    <div id="taskList"></div>
+                </div>
+
+                <div class="lp-actions">
+                    <button class="submit-btn" id="submitBtn" onclick="submitTask()">Mark Task Done (Optional)</button>
+                </div>
+            </div>
+
+            <!-- EDITOR -->
+            <div class="editor-area">
+                <div class="editor-topbar">
+                    <div class="editor-tabs">
+                        <button class="etab active">solution.py</button>
+                    </div>
+                </div>
+                <div class="code-area-wrap">
+                    <div class="line-nums" id="lineNums"></div>
+                    <textarea class="code-ta" id="codeArea" spellcheck="false" onkeyup="onKey()"
+                        onpaste="onPaste(event)" oninput="updateLineNums()"></textarea>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- TEACHER MESSAGE BANNER -->
+    <div id="teacherMsg"
+        style="display:none;position:fixed;top:70px;left:50%;transform:translateX(-50%);background:var(--navy);color:#fff;padding:10px 20px;border-radius:9px;font-size:.88rem;font-weight:500;z-index:300;box-shadow:0 4px 20px rgba(0,0,0,.25)">
+    </div>
+    <!-- PASTE WARNING -->
+    <div id="pasteWarning"
+        style="display:none;position:fixed;bottom:6rem;right:1.75rem;background:var(--red-pale);border:1.5px solid rgba(184,50,50,.3);border-radius:10px;padding:.8rem 1rem;font-size:.8rem;color:var(--red);font-weight:600;z-index:201;gap:8px;align-items:center">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3"
+            stroke-linecap="round" stroke-linejoin="round">
+            <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
+            <line x1="12" y1="9" x2="12" y2="13" />
+        </svg>
+        <span></span>
+        <button onclick="document.getElementById('pasteWarning').style.display='none'"
+            style="background:none;border:none;cursor:pointer;color:var(--red);font-size:1rem;line-height:1;padding:0 0 0 4px">×</button>
+    </div>
+    <!-- HINT TOAST -->
+    <div class="hint-toast" id="hintToast">
+        <button class="ht-close" onclick="closeHint()">×</button>
+        <div class="ht-head">
+            <span class="ht-icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#1a7a6e"
+                    stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <circle cx="12" cy="12" r="10" />
+                    <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3" />
+                    <line x1="12" y1="17" x2="12.01" y2="17" stroke-width="3" />
+                </svg></span>
+            <span class="ht-title">AI Hint</span>
+            <span class="ht-level" id="htLevel">Level 1</span>
+        </div>
+        <div style="font-size:.72rem;font-weight:700;color:var(--teal);text-transform:uppercase;letter-spacing:.08em;margin-bottom:.4rem"
+            id="htCategory">Hint</div>
+        <div class="ht-body" id="htBody">—</div>
+        <button class="ht-more" id="htMore" onclick="requestNextHint()">Still stuck? Get a deeper hint →</button>
+    </div>
+
+    <!-- CONFUSED MODAL -->
+    <div class="modal-overlay" id="confusedModal">
+        <div class="modal">
+            <div class="modal-title">What's confusing you?</div>
+            <div class="modal-sub">Describe what you're stuck on. The AI will give you a personalised hint — not the
+                full answer, just the right nudge to get you moving again.</div>
+            <textarea class="modal-ta" id="confusedText" rows="4"
+                placeholder="e.g. I don't understand why my recursion never stops running…"></textarea>
+            <div class="modal-btns">
+                <button class="modal-cancel" onclick="closeConfused()">Cancel</button>
+                <button class="modal-submit" onclick="submitConfused()">Get Hint →</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- SUCCESS -->
+    <div class="success-overlay" id="successOverlay">
+        <div class="success-card">
+            <div class="success-icon"><svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#1a7a6e"
+                    stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <circle cx="12" cy="12" r="10" />
+                    <polyline points="9 12 11 14 15 10" />
+                </svg></div>
+            <div class="success-title" id="successTitle">Task Submitted!</div>
+            <div class="success-sub" id="successSub">Progress saved.</div>
+        </div>
+    </div>
+
+
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+    <script>
+        // ═══════════════════════════════════════════════════════════════
+        // EduPulse Student Workspace — Socket.IO Backend Integration
+        // ═══════════════════════════════════════════════════════════════
+        const API = '';
+        let socket = null, sessionId = null, studentName = null;
+        let joinInFlight = false;
+
+        // Telemetry state
+        let keystrokeCount = 0, pasteCount = 0, idleSeconds = 0, hintLevel = 0;
+        let lastKeystroke = Date.now();
+        let completedTasks = new Set();
+        let currentTask = 1;
+
+        // ── TASKS ──────────────────────────────────────────────────────
+        let tasks = [
+            {
+                id: 1,
+                name: 'AI Task from Material',
+                desc: 'Waiting for teacher task...',
+                starter: '# Waiting for AI-generated task from uploaded class PDF.\n# You can use this area for notes or solution draft.\n'
+            },
+        ];
+
+        function _escapeHtml(str) {
+            return String(str || '')
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;');
+        }
+
+        function buildTaskFromDescription(rawText) {
+            const text = (rawText || '').trim();
+            if (!text) {
+                return {
+                    id: 1,
+                    name: 'AI Task from Material',
+                    desc: 'Task is being prepared from uploaded class material.',
+                    starter: '# AI task is being prepared.\n# Use this area for notes or your answer.\n',
+                };
+            }
+
+            const lines = text.split(/\r?\n/).map(s => s.trim()).filter(Boolean);
+            let title = lines[0] || 'AI Task from Material';
+            if (/^task\s*:/i.test(title)) {
+                title = title.split(':', 2)[1].trim() || 'AI Task from Material';
+            }
+            const shortTitle = title.length > 72 ? `${title.slice(0, 69)}...` : title;
+            const htmlDesc = marked.parse(text);
+            const starter = `# AI Task\n# ${title}\n\n# Add your solution or notes below:\n`;
+            return {
+                id: 1,
+                name: shortTitle,
+                desc: htmlDesc,
+                starter,
+            };
+        }
+
+        function updateCompletion() {
+            const total = Math.max(1, tasks.length);
+            const completed = completedTasks.size;
+            const percent = Math.round((completed / total) * 100);
+            const fill = document.getElementById('completionFill');
+            const text = document.getElementById('completionText');
+            if (fill) fill.style.width = percent + '%';
+            if (text) text.textContent = percent + '%';
+        }
+
+        async function loadSessionTask(sid) {
+            try {
+                const res = await fetch(`${API}/api/sessions/${sid}`);
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.detail || 'Could not load session task');
+                tasks = [buildTaskFromDescription(data.task_description || '')];
+            } catch (_) {
+                tasks = [buildTaskFromDescription('Task: Review the uploaded material and attempt the core exercise.')];
+            }
+            currentTask = 1;
+            completedTasks = new Set();
+            updateCompletion();
+            loadTask(1);
+            renderTaskList();
+        }
+
+        // ── URL PARAM INIT ────────────────────────────────────────────
+        // ── URL PARAM INIT ────────────────────────────────────────────
+        document.addEventListener('DOMContentLoaded', () => {
+            const params = new URLSearchParams(window.location.search);
+            const urlSession = params.get('session');
+            const sessionInput = document.getElementById('inputSessionLink');
+            const nameInput = document.getElementById('inputStudentName');
+
+            // Set default name from storage
+            if (nameInput) {
+                nameInput.value = sessionStorage.getItem('edupulse_student_name') || '';
+            }
+
+            if (urlSession) {
+                const sid = extractSessionId(urlSession);
+                if (sessionInput && sid) {
+                    sessionInput.value = `${window.location.origin}/student.html?session=${sid}`;
+                }
+            }
+
+            [sessionInput, nameInput].forEach(inp => {
+                inp?.addEventListener('keydown', e => {
+                    if (e.key === 'Enter') joinSession();
+                });
+            });
+
+            sessionInput?.addEventListener('paste', (e) => {
+                const pasted = (e.clipboardData || window.clipboardData)?.getData('text') || '';
+                const sid = extractSessionId(pasted);
+                if (!sid) return;
+                e.preventDefault();
+                sessionInput.value = `${window.location.origin}/student.html?session=${sid}`;
+                // Only auto-join if name is already set
+                if (nameInput && nameInput.value.trim()) joinSession();
+            });
+
+            // Don't auto-join unless we have both SID and name
+            if ((sessionInput?.value || '').trim() && (nameInput?.value || '').trim()) {
+                joinSession();
+            }
+        });
+
+        function extractSessionId(value) {
+            const raw = (value || '').trim();
+            if (!raw) return '';
+            try {
+                const url = new URL(raw);
+                const fromQuery = (url.searchParams.get('session') || '').trim();
+                if (fromQuery) return fromQuery;
+            } catch (_) { }
+            const queryMatch = raw.match(/[?&]session=([A-Za-z0-9_-]{4,32})/i);
+            if (queryMatch) return queryMatch[1];
+            return raw;
+        }
+
+        function getOrCreateStudentName() {
+            const existing = (sessionStorage.getItem('edupulse_student_name') || '').trim();
+            if (existing) return existing;
+            const suffix = Math.random().toString(36).slice(2, 6).toUpperCase();
+            const generated = `Student-${suffix}`;
+            sessionStorage.setItem('edupulse_student_name', generated);
+            return generated;
+        }
+
+        // ── JOIN SESSION ──────────────────────────────────────────────
+        async function joinSession() {
+            if (joinInFlight) return;
+            const rawLink = (document.getElementById('inputSessionLink').value || '').trim();
+            const sid = extractSessionId(rawLink);
+            const nameInput = document.getElementById('inputStudentName');
+            let name = (nameInput.value || '').trim();
+
+            if (!name) {
+                name = getOrCreateStudentName();
+                if (nameInput) nameInput.value = name;
+            } else {
+                sessionStorage.setItem('edupulse_student_name', name);
+            }
+
+            if (!sid) {
+                const err = document.getElementById('errMsg');
+                if (err) err.style.display = 'block';
+                return;
+            }
+            joinInFlight = true;
+            const errEl = document.getElementById('errMsg');
+            if (errEl) errEl.style.display = 'none';
+
+            studentName = name;
+            sessionId = sid;
+
+            try {
+                const res = await fetch(`${API}/api/sessions/${sid}/join`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ student_name: name }),
+                });
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.detail || 'Session not found');
+
+                showWorkspace(name, sid);
+                initSocket(sid, name);
+            } catch (e) {
+                const el = document.getElementById('joinError');
+                if (el) {
+                    el.textContent = e.message;
+                    el.style.display = 'block';
+                }
+            } finally {
+                joinInFlight = false;
+            }
+        }
+
+        function showWorkspace(name, sid) {
+            document.getElementById('joinScreen').style.display = 'none';
+            document.getElementById('workspace').style.display = 'block';
+            document.getElementById('navSession').style.display = 'block';
+            document.getElementById('navSession').textContent = sid;
+            document.getElementById('navName').textContent = name;
+            document.getElementById('lpSession').textContent = 'SESSION ' + sid;
+            document.getElementById('lpMeta').textContent = name;
+            loadSessionTask(sid);
+            updateLineNums();
+            startIdleTimer();
+        }
+
+        // ── Socket.IO ─────────────────────────────────────────────────
+        function initSocket(sid, name) {
+            socket = io({ transports: ['websocket', 'polling'] });
+
+            socket.on('connect', () => {
+                setConn('teal', 'Connected');
+                socket.emit('join_room', { session_id: sid, role: 'student', student_name: name });
+            });
+            socket.on('disconnect', () => setConn('red', 'Disconnected'));
+            socket.on('connect_error', () => setConn('amber', 'Reconnecting…'));
+
+            // Receive hints from the server
+            socket.on('hint', (data) => {
+                if (data.student_name === studentName || !data.student_name) {
+                    showHint(data.hint, data.level || 0);
+                    hintLevel = data.level || 0;
+                }
+            });
+
+            // Quiz available
+            socket.on('quiz_available', (data) => {
+                showQuiz(data.questions || []);
+            });
+
+            // Session ended
+            socket.on('session_ended', () => {
+                document.getElementById('codeArea').disabled = true;
+                const ov = document.getElementById('successOverlay');
+                document.getElementById('successTitle').textContent = 'Session Ended';
+                document.getElementById('successSub').textContent = 'Your teacher has ended this session. Thank you for participating!';
+                ov.classList.add('show');
+            });
+
+            // Errors
+            socket.on('error', (data) => {
+                console.error('Server error:', data.message);
+            });
+        }
+
+        function setConn(cls, text) {
+            const dot = document.getElementById('connDot');
+            if (dot) dot.className = 'conn-dot ' + cls;
+            const label = document.getElementById('connLabel');
+            if (label) label.textContent = text;
+            const sb = document.getElementById('sbDot');
+            if (sb) sb.className = 'sb-dot ' + cls;
+            const sbConn = document.getElementById('sbConn');
+            if (sbConn) sbConn.textContent = text;
+        }
+
+        // ── IDLE TIMER & TELEMETRY ────────────────────────────────────
+        function startIdleTimer() {
+            setInterval(() => {
+                idleSeconds = Math.floor((Date.now() - lastKeystroke) / 1000);
+                const sbIdle = document.getElementById('sbIdle');
+                if (sbIdle) sbIdle.textContent = 'Idle: ' + idleSeconds + 's';
+                const sbPaste = document.getElementById('sbPaste');
+                if (sbPaste) sbPaste.textContent = 'Pastes: ' + pasteCount;
+                const sbKeys = document.getElementById('sbKeys');
+                if (sbKeys) sbKeys.textContent = 'Keystrokes: ' + keystrokeCount;
+                sendTelemetry('idle', { idle_seconds: idleSeconds });
+            }, 5000);
+        }
+
+        function sendTelemetry(eventType, payload = {}) {
+            if (!socket || !sessionId) return;
+            const code = document.getElementById('codeArea')?.value || '';
+            socket.emit('telemetry', {
+                session_id: sessionId,
+                student_name: studentName,
+                event: {
+                    event_type: eventType,
+                    payload: {
+                        keystroke_count: keystrokeCount,
+                        paste_count: pasteCount,
+                        idle_seconds: idleSeconds,
+                        tasks_completed: completedTasks.size,
+                        progress: Math.round((completedTasks.size / Math.max(1, tasks.length)) * 100),
+                        current_code: code,
+                        ...payload,
+                    },
+                },
+            });
+        }
+
+        // ── EDITOR FUNCTIONS ──────────────────────────────────────────
+        function onKey() {
+            keystrokeCount++;
+            lastKeystroke = Date.now();
+            idleSeconds = 0;
+            const typingInd = document.getElementById('typingInd');
+            if (typingInd) typingInd.textContent = 'Typing…';
+            clearTimeout(window._typingTimer);
+            window._typingTimer = setTimeout(() => {
+                const ind = document.getElementById('typingInd');
+                if (ind) ind.textContent = 'Idle';
+            }, 2000);
+            sendTelemetry('keystroke', { count: 1, key_ts: Date.now() / 1000 });
+        }
+
+        function onPaste(e) {
+            const text = (e.clipboardData || window.clipboardData).getData('text');
+            const chars = text.length;
+            pasteCount++;
+            lastKeystroke = Date.now();
+            sendTelemetry('paste', { length: chars, content_preview: text.slice(0, 100) });
+            if (chars > 120) {
+                const el = document.getElementById('pasteWarning');
+                if (el) { el.style.display = 'flex'; el.querySelector('span').textContent = `Large paste (${chars} chars) detected and reported.`; }
+            }
+        }
+
+        function updateLineNums() {
+            const ta = document.getElementById('codeArea');
+            const ln = document.getElementById('lineNums');
+            if (!ta || !ln) return;
+            const lines = (ta.value || '').split('\n').length;
+            ln.innerHTML = Array.from({ length: Math.max(lines, 1) }, (_, i) =>
+                `<div class="ln">${i + 1}</div>`
+            ).join('');
+        }
+
+        // ── TASK MANAGEMENT ───────────────────────────────────────────
+        function loadTask(id) {
+            currentTask = id;
+            const t = tasks.find(t => t.id === id);
+            if (!t) return;
+            const headline = document.getElementById('taskHeadline');
+            if (headline) headline.textContent = t.name || 'AI Task from Class Material';
+            const editor = document.getElementById('codeArea');
+            editor.value = completedTasks.has(id) ? '# ✓ Task submitted\n' : t.starter;
+            editor.disabled = completedTasks.has(id);
+            const btn = document.getElementById('submitBtn');
+            btn.textContent = completedTasks.has(id) ? '✓ Done' : 'Mark Task Done (Optional)';
+            btn.disabled = completedTasks.has(id);
+            hintLevel = 0;
+            closeHint();
+            updateLineNums();
+        }
+
+        function renderTaskList() {
+            document.getElementById('taskList').innerHTML = tasks.map(t => `
+        <div class="task-item${t.id === currentTask ? ' active' : ''}${completedTasks.has(t.id) ? ' done' : ''}" onclick="selectTask(${t.id})">
+          <div class="ti-head">
+            <div class="ti-num">TASK ${String(t.id).padStart(2, '0')}</div>
+            <div class="ti-check${completedTasks.has(t.id) ? ' done' : ''}">
+              ${completedTasks.has(t.id) ? '<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>' : ''}
+            </div>
+          </div>
+          <div class="ti-name">${t.name}</div>
+          <div class="ti-desc">${t.desc}</div>
+        </div>`).join('');
+        }
+
+        function selectTask(id) {
+            if (id === currentTask) return;
+            currentTask = id;
+            loadTask(id);
+            renderTaskList();
+        }
+
+        function submitTask() {
+            if (completedTasks.has(currentTask)) return;
+            completedTasks.add(currentTask);
+            updateCompletion();
+            renderTaskList();
+            sendTelemetry('task_complete', { task_id: currentTask, tasks_completed: completedTasks.size });
+            loadTask(currentTask);
+
+            // Success flash
+            const ov = document.getElementById('successOverlay');
+            document.getElementById('successTitle').textContent = 'Task Submitted!';
+            document.getElementById('successSub').textContent = 'Great. Continue refining your answer if needed.';
+            ov.classList.add('show');
+            setTimeout(() => { ov.classList.remove('show'); }, 1500);
+        }
+
+        // ── HINTS ─────────────────────────────────────────────────────
+        function showHint(text, level) {
+            const levels = ['Concept Hint', 'Structural Hint', 'Partial Solution'];
+            document.getElementById('htLevel').textContent = levels[Math.min(level, 2)];
+            document.getElementById('htCategory').textContent = 'Level ' + (level + 1);
+            document.getElementById('htBody').innerHTML = marked.parse(text);
+            document.getElementById('hintToast').classList.add('show');
+            // Show "deeper hint" button only if not at max level
+            document.getElementById('htMore').style.display = level < 2 ? 'inline-block' : 'none';
+        }
+
+        function closeHint() { document.getElementById('hintToast').classList.remove('show'); }
+
+        function requestNextHint() { openConfused(true); }
+
+        function openConfused(skipModal) {
+            if (skipModal) { submitConfused(); return; }
+            document.getElementById('confusedModal').classList.add('show');
+            document.getElementById('confusedText').focus();
+        }
+
+        function closeConfused() { document.getElementById('confusedModal').classList.remove('show'); }
+
+        function submitConfused() {
+            const text = (document.getElementById('confusedText')?.value || '').trim();
+            closeConfused();
+            if (!socket || !sessionId) return;
+            sendTelemetry('help', {
+                message: text || 'Student is confused',
+                current_answer: document.getElementById('codeArea')?.value || ''
+            });
+        }
+
+        // ── QUIZ ──────────────────────────────────────────────────────
+        function showQuiz(questions) {
+            if (!questions.length) return;
+            // Build a simple quiz modal
+            let html = '<div class="modal-title">🧠 Knowledge Check</div>';
+            html += '<div class="modal-sub">Your teacher sent a quiz. Answer all questions below.</div>';
+            questions.forEach((q, i) => {
+                html += `<div style="margin-bottom:14px;padding:12px;background:var(--cream);border:1px solid var(--border-lt);border-radius:10px">`;
+                html += `<div style="font-size:.85rem;font-weight:700;color:var(--navy);margin-bottom:8px">${i + 1}. ${q.question}</div>`;
+                const entries = Object.entries(q.options || {});
+                entries.forEach(([optKey, optVal]) => {
+                    html += `<label style="display:block;padding:6px 10px;margin:4px 0;border-radius:6px;cursor:pointer;font-size:.82rem;color:var(--text-mid);border:1px solid var(--border-lt);transition:all .15s">
+            <input type="radio" name="q${i}" value="${optKey}" style="margin-right:8px"> <strong>${optKey}.</strong> ${optVal}
+          </label>`;
+                });
+                html += '</div>';
+            });
+            html += `<button class="submit-btn" style="margin-top:12px" onclick="submitQuiz()">📝 Submit Answers</button>`;
+            html += `<div id="quizFeedback" style="margin-top:12px;display:none"></div>`;
+
+            // Insert into a modal
+            const overlay = document.createElement('div');
+            overlay.className = 'modal-overlay show';
+            overlay.id = 'quizModal';
+            overlay.innerHTML = `<div class="modal" style="max-width:650px;max-height:85vh;overflow-y:auto">${html}</div>`;
+            document.body.appendChild(overlay);
+            window._quizQuestions = questions;
+        }
+
+        async function submitQuiz() {
+            if (!window._quizQuestions) return;
+            const questions = window._quizQuestions;
+            const answers = {};
+            questions.forEach((q, i) => {
+                const checked = document.querySelector(`input[name="q${i}"]:checked`);
+                if (checked) answers[String(i)] = checked.value;
+            });
+
+            try {
+                const res = await fetch(`${API}/api/sessions/${sessionId}/submit-quiz`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ student_name: studentName, answers }),
+                });
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.detail || 'Submit failed');
+
+                const fb = document.getElementById('quizFeedback');
+                if (fb) {
+                    fb.style.display = 'block';
+                    fb.innerHTML = `<div style="text-align:center;padding:16px;background:var(--teal-pale);border-radius:10px;border:1px solid rgba(26,122,110,.2)">
+            <div style="font-family:'Playfair Display',serif;font-size:1.5rem;font-weight:900;color:var(--teal)">${data.correct || 0}/${data.total || 0}</div>
+            <div style="font-size:.82rem;color:var(--text-mid);margin-top:4px">Score: ${data.score || 0}%</div>
+          </div>`;
+                }
+                // Close quiz modal after delay
+                setTimeout(() => {
+                    const m = document.getElementById('quizModal');
+                    if (m) m.remove();
+                    window._quizQuestions = null;
+                }, 4000);
+            } catch (e) {
+                alert('Quiz submission error: ' + e.message);
+            }
+        }
+
+        // ── TEACHER MESSAGE ───────────────────────────────────────────
+        function showTeacherMsg(text) {
+            const el = document.getElementById('teacherMsg');
+            if (!el) return;
+            el.textContent = text;
+            el.style.display = 'block';
+            setTimeout(() => { el.style.display = 'none'; }, 8000);
+        }
+    </script>
+</body>
+
+</html>

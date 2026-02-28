@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>EduPulse - Session Report</title>
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700;900&family=Source+Sans+3:wght@300;400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --cream:#f6f8fc; --ivory:#ffffff; --warm:#eef2fb;
+  --navy:#1a2744; --navy-mid:#2c3e6b;
+  --teal:#1a7a6e; --amber:#c97010; --red:#b83232;
+  --text:#1a1b2e; --text-mid:#4b5678; --text-dim:#7c86a5;
+  --border:#d8e0f0; --border-lt:#e8edf7;
+  --shadow:0 2px 12px rgba(26,39,68,.08); --shadow-md:0 4px 28px rgba(26,39,68,.12);
+}
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:'Source Sans 3',sans-serif;background:var(--cream);color:var(--text)}
+.nav{position:fixed;top:0;left:0;right:0;z-index:100;background:rgba(255,255,255,.95);border-bottom:1px solid var(--border);height:64px;display:flex;align-items:center;padding:0 1.5rem}
+.nav-inner{max-width:1180px;width:100%;margin:0 auto;display:flex;align-items:center;justify-content:space-between}
+.nav-logo{display:flex;align-items:center;gap:10px;text-decoration:none}
+.logo-mark{width:32px;height:32px;background:#2c3e6b;border-radius:8px;display:flex;align-items:center;justify-content:center}
+.logo-text{font-family:'Playfair Display',serif;font-size:1.15rem;font-weight:700;color:var(--navy)}
+.logo-text em{color:var(--teal);font-style:normal}
+.btn{padding:8px 14px;border-radius:8px;border:1px solid var(--border);color:var(--text-mid);text-decoration:none;font-size:.85rem}
+.page{max-width:1180px;margin:0 auto;padding:84px 1.25rem 2rem}
+.header{display:flex;justify-content:space-between;gap:1rem;align-items:flex-start;flex-wrap:wrap;margin-bottom:1.25rem}
+.title{font-family:'Playfair Display',serif;font-size:2rem;color:var(--navy);margin:.25rem 0}
+.meta{font-size:.84rem;color:var(--text-dim);display:flex;gap:1rem;flex-wrap:wrap}
+.kpi-row{display:grid;grid-template-columns:repeat(5,1fr);gap:.8rem;margin:1rem 0}
+@media(max-width:900px){.kpi-row{grid-template-columns:repeat(3,1fr)}}
+@media(max-width:580px){.kpi-row{grid-template-columns:repeat(2,1fr)}}
+.kpi{background:var(--ivory);border:1px solid var(--border);border-radius:12px;padding:1rem;box-shadow:var(--shadow)}
+.kpi-label{font-size:.66rem;letter-spacing:.08em;text-transform:uppercase;color:var(--text-dim)}
+.kpi-val{font-family:'Playfair Display',serif;font-size:1.7rem;font-weight:900;line-height:1.1;margin:.35rem 0;color:var(--text)}
+.kpi-sub{font-size:.72rem;color:var(--text-dim)}
+.grid{display:grid;grid-template-columns:1.6fr 1fr;gap:.9rem}
+@media(max-width:920px){.grid{grid-template-columns:1fr}}
+.card{background:var(--ivory);border:1px solid var(--border);border-radius:13px;box-shadow:var(--shadow)}
+.card-head{padding:1rem 1rem .8rem;border-bottom:1px solid var(--border-lt);display:flex;justify-content:space-between}
+.card-title{font-family:'Playfair Display',serif;font-size:1rem;color:var(--navy)}
+.card-body{padding:1rem}
+.fb-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:.8rem;margin-bottom:.9rem}
+@media(max-width:880px){.fb-grid{grid-template-columns:1fr}}
+.fb{border:1px solid var(--border);border-radius:11px;padding:.9rem}
+.fb-title{font-size:.82rem;font-weight:700;color:var(--text-mid)}
+.fb-val{font-family:'Playfair Display',serif;font-size:1.8rem;font-weight:900;line-height:1.1}
+.fb-desc{font-size:.76rem;color:var(--text-dim)}
+.insight{background:rgba(67,214,191,.1);border:1px solid rgba(67,214,191,.26);border-radius:10px;padding:.9rem;font-size:.84rem;line-height:1.6}
+.u-row{display:flex;align-items:center;gap:.55rem;margin:.45rem 0}
+.u-label{width:160px;flex-shrink:0;font-size:.8rem;color:var(--text-mid)}
+.u-track{height:20px;flex:1;background:#eff3fb;border:1px solid var(--border);border-radius:6px;overflow:hidden}
+.u-fill{height:100%;display:flex;align-items:center;font-size:.72rem;font-weight:700;color:#fff;padding-left:8px}
+.u-pct{width:42px;text-align:right;font-size:.78rem;color:var(--text-dim)}
+.timeline-bars{display:flex;align-items:flex-end;gap:3px;height:84px;margin-top:.5rem}
+.tbar{flex:1;min-height:4px;border-radius:4px 4px 0 0}
+.timeline-axis{display:flex;justify-content:space-between;font-size:.62rem;color:var(--text-dim);margin-top:4px}
+.topic-row{display:flex;align-items:center;gap:8px;padding:.45rem 0;border-bottom:1px solid var(--border-lt)}
+.topic-row:last-child{border-bottom:none}
+.topic-name{flex:1;font-size:.84rem}
+.topic-track{width:110px;height:8px;background:#eff3fb;border:1px solid var(--border);border-radius:5px;overflow:hidden}
+.topic-fill{height:100%;background:linear-gradient(90deg,var(--amber),var(--red))}
+.topic-pct{width:40px;text-align:right;font-size:.75rem;color:var(--text-dim)}
+.error{background:rgba(255,119,119,.12);border:1px solid rgba(255,119,119,.3);border-radius:10px;padding:1rem;color:var(--red)}
+</style>
+</head>
+<body>
+<nav class="nav">
+  <div class="nav-inner">
+    <a href="index.html" class="nav-logo">
+      <div class="logo-mark"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.2"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg></div>
+      <span class="logo-text">Edu<em>Pulse</em></span>
+    </a>
+    <a class="btn" href="teacher.html">Back to Dashboard</a>
+  </div>
+</nav>
+<main class="page">
+  <div class="header">
+    <div>
+      <div style="font-size:.75rem;color:var(--teal);letter-spacing:.08em;text-transform:uppercase;font-weight:700">Session Complete</div>
+      <h1 class="title">Session Report</h1>
+      <div class="meta" id="meta"></div>
+    </div>
+    <button class="btn" onclick="window.print()">Export PDF</button>
+  </div>
+
+  <div class="kpi-row">
+    <div class="kpi"><div class="kpi-label">Students</div><div class="kpi-val" id="kpiStudents">0</div><div class="kpi-sub">joined session</div></div>
+    <div class="kpi"><div class="kpi-label">Understanding</div><div class="kpi-val" id="kpiUnderstanding">0%</div><div class="kpi-sub">hints-based</div></div>
+    <div class="kpi"><div class="kpi-label">AI Hints</div><div class="kpi-val" id="kpiHints">0</div><div class="kpi-sub">total delivered</div></div>
+    <div class="kpi"><div class="kpi-label">Avg Hints</div><div class="kpi-val" id="kpiAvgHints">0</div><div class="kpi-sub">per student</div></div>
+    <div class="kpi"><div class="kpi-label">Need Follow-up</div><div class="kpi-val" id="kpiCritical">0</div><div class="kpi-sub">critical students</div></div>
+  </div>
+
+  <div class="fb-grid">
+    <div class="fb"><div class="fb-val" style="color:var(--teal)" id="fbMastered">0</div><div class="fb-title">Mastered</div><div class="fb-desc">0-1 hints used.</div></div>
+    <div class="fb"><div class="fb-val" style="color:var(--amber)" id="fbPartial">0</div><div class="fb-title">Partial</div><div class="fb-desc">2-4 hints used.</div></div>
+    <div class="fb"><div class="fb-val" style="color:var(--red)" id="fbStruggling">0</div><div class="fb-title">Struggling</div><div class="fb-desc">5+ hints or high struggle.</div></div>
+  </div>
+
+  <div class="insight" id="insightBox">Loading AI feedback…</div>
+
+  <div class="grid" style="margin-top:.9rem">
+    <div class="card">
+      <div class="card-head"><div class="card-title">Understanding Breakdown</div><div style="font-size:.72rem;color:var(--text-dim)">by hint usage</div></div>
+      <div class="card-body">
+        <div class="u-row"><div class="u-label">Mastered (0-1)</div><div class="u-track"><div id="uMastered" class="u-fill" style="width:0;background:var(--teal)">0%</div></div><div class="u-pct" id="uMasteredPct">0%</div></div>
+        <div class="u-row"><div class="u-label">Partial (2-4)</div><div class="u-track"><div id="uPartial" class="u-fill" style="width:0;background:var(--amber)">0%</div></div><div class="u-pct" id="uPartialPct">0%</div></div>
+        <div class="u-row"><div class="u-label">Struggling (5+)</div><div class="u-track"><div id="uStruggling" class="u-fill" style="width:0;background:var(--red)">0%</div></div><div class="u-pct" id="uStrugglingPct">0%</div></div>
+        <div class="u-row"><div class="u-label">Incomplete</div><div class="u-track"><div id="uIncomplete" class="u-fill" style="width:0;background:#7f8cb7">0%</div></div><div class="u-pct" id="uIncompletePct">0%</div></div>
+        <div style="margin-top:.8rem;font-size:.74rem;color:var(--text-dim)">Confusion timeline (4-minute windows)</div>
+        <div id="timelineBars" class="timeline-bars"></div>
+        <div id="timelineAxis" class="timeline-axis"></div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-head"><div class="card-title">Hardest Topics</div><div style="font-size:.72rem;color:var(--text-dim)">from class signals</div></div>
+      <div class="card-body" id="topicsBody"></div>
+    </div>
+  </div>
+
+  <div id="errorBox" class="error" style="display:none;margin-top:1rem"></div>
+</main>
+<script>
+const API = '';
+
+function byId(id){ return document.getElementById(id); }
+
+function setMeta(report){
+  const parts = [];
+  const dt = new Date((report.ended_at || Date.now()/1000) * 1000);
+  parts.push(`Date: ${dt.toLocaleDateString()}`);
+  parts.push(`Duration: ${report.duration_minutes || 0} min`);
+  parts.push(`Session: ${report.session_id || '-'}`);
+  if (report.task_level) parts.push(`Level: ${report.task_level}`);
+  byId('meta').innerHTML = parts.map(p => `<span>${p}</span>`).join('');
+}
+
+function setKpis(report){
+  const a = report.analytics || {};
+  byId('kpiStudents').textContent = a.total_students ?? 0;
+  byId('kpiUnderstanding').textContent = `${Math.round(a.avg_understanding_score || 0)}%`;
+  byId('kpiHints').textContent = a.total_hints ?? 0;
+  byId('kpiAvgHints').textContent = (a.hints_per_student_per_task ?? 0).toFixed ? (a.hints_per_student_per_task).toFixed(1) : (a.hints_per_student_per_task ?? 0);
+  byId('kpiCritical').textContent = a.critical_students ?? 0;
+}
+
+function setFeedbackCards(report){
+  const c = report.counts || {};
+  byId('fbMastered').textContent = c.mastered ?? 0;
+  byId('fbPartial').textContent = c.partial ?? 0;
+  byId('fbStruggling').textContent = c.struggling ?? 0;
+}
+
+function setInsight(report){
+  const ins = (report.analytics && Array.isArray(report.analytics.insights)) ? report.analytics.insights : [];
+  const first = ins.length ? ins[0] : (report.summary || 'No summary available.');
+  byId('insightBox').innerHTML = first;
+}
+
+function setBreakdown(report){
+  const p = report.percentages || {};
+  const rows = [
+    ['Mastered', p.mastered || 0, 'uMastered'],
+    ['Partial', p.partial || 0, 'uPartial'],
+    ['Struggling', p.struggling || 0, 'uStruggling'],
+    ['Incomplete', p.incomplete || 0, 'uIncomplete'],
+  ];
+  rows.forEach(([name, val, id]) => {
+    byId(id).style.width = `${val}%`;
+    byId(id).textContent = `${val}%`;
+    byId(`${id}Pct`).textContent = `${val}%`;
+  });
+}
+
+function setTimeline(report){
+  const labels = (report.timeline && report.timeline.labels) || [];
+  const data = (report.timeline && report.timeline.data) || [];
+  const barsEl = byId('timelineBars');
+  const axisEl = byId('timelineAxis');
+  barsEl.innerHTML = '';
+  axisEl.innerHTML = '';
+  const maxV = Math.max(1, ...data);
+  data.forEach((v) => {
+    const pct = Math.max(4, Math.round((v / maxV) * 100));
+    const col = v <= 1 ? 'var(--teal)' : (v <= 4 ? 'var(--amber)' : 'var(--red)');
+    const d = document.createElement('div');
+    d.className = 'tbar';
+    d.style.height = `${pct}%`;
+    d.style.background = col;
+    barsEl.appendChild(d);
+  });
+  labels.forEach((l) => {
+    const s = document.createElement('span');
+    s.textContent = `${l}m`;
+    axisEl.appendChild(s);
+  });
+}
+
+function setTopics(report){
+  const topics = Array.isArray(report.hardest_topics) ? report.hardest_topics : [];
+  const body = byId('topicsBody');
+  body.innerHTML = '';
+  topics.forEach((t) => {
+    const row = document.createElement('div');
+    row.className = 'topic-row';
+    row.innerHTML = `
+      <div class="topic-name">${t.name}</div>
+      <div class="topic-track"><div class="topic-fill" style="width:${t.pct}%"></div></div>
+      <div class="topic-pct">${t.pct}%</div>
+    `;
+    body.appendChild(row);
+  });
+}
+
+async function init(){
+  const params = new URLSearchParams(window.location.search);
+  const sid = (params.get('session') || '').trim();
+  if (!sid) {
+    byId('errorBox').style.display = 'block';
+    byId('errorBox').textContent = 'Missing session id in URL.';
+    return;
+  }
+  try {
+    const res = await fetch(`${API}/api/sessions/${encodeURIComponent(sid)}/report`);
+    const report = await res.json();
+    if (!res.ok) throw new Error(report.detail || 'Could not load report');
+    setMeta(report);
+    setKpis(report);
+    setFeedbackCards(report);
+    setInsight(report);
+    setBreakdown(report);
+    setTimeline(report);
+    setTopics(report);
+  } catch (e) {
+    byId('errorBox').style.display = 'block';
+    byId('errorBox').textContent = e.message || String(e);
+  }
+}
+
+init();
+</script>
+</body>
+</html>

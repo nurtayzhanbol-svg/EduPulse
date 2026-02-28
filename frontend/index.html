@@ -1,0 +1,564 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>EduPulse — Real-Time Classroom Intelligence</title>
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,700;0,900;1,700&family=Source+Sans+3:wght@300;400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --cream:#f6f8fc; --ivory:#ffffff; --warm:#eef2fb;
+  --navy:#1a2744; --navy-mid:#2c3e6b; --navy-lt:rgba(44,62,107,.09);
+  --teal:#1a7a6e; --teal-lt:#209586; --teal-pale:rgba(26,122,110,.1);
+  --amber:#c97010; --amber-pale:rgba(201,112,16,.12);
+  --red:#b83232; --red-pale:rgba(184,50,50,.1);
+  --text:#1a1b2e; --text-mid:#4b5678; --text-dim:#7c86a5;
+  --border:#d8e0f0; --border-lt:#e8edf7;
+  --shadow:0 2px 12px rgba(26,39,68,.08);
+  --shadow-md:0 4px 28px rgba(26,39,68,.12);
+  --shadow-lg:0 8px 52px rgba(26,39,68,.16);
+}
+*{margin:0;padding:0;box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{font-family:'Source Sans 3',sans-serif;background:var(--cream);color:var(--text);font-size:16px;line-height:1.6;-webkit-font-smoothing:antialiased}
+
+/* NAV */
+.nav{position:fixed;top:0;left:0;right:0;z-index:100;background:rgba(255,255,255,.95);backdrop-filter:blur(20px);border-bottom:1px solid var(--border);height:68px;display:flex;align-items:center;padding:0 2.5rem}
+.nav-inner{max-width:1180px;width:100%;margin:0 auto;display:flex;align-items:center;justify-content:space-between}
+.nav-logo{display:flex;align-items:center;gap:11px;text-decoration:none}
+.logo-mark{width:34px;height:34px;background:#2c3e6b;border-radius:8px;display:flex;align-items:center;justify-content:center}
+.logo-mark svg{display:block}
+.logo-text{font-family:'Playfair Display',serif;font-size:1.3rem;font-weight:700;color:var(--navy);letter-spacing:-.01em}
+.logo-text em{color:var(--teal);font-style:normal}
+.nav-links{display:flex;align-items:center;gap:2px}
+.nav-link{padding:7px 16px;border-radius:8px;font-size:.9rem;font-weight:500;text-decoration:none;transition:all .15s;color:var(--text-mid)}
+.nav-link:hover{background:var(--ivory);color:var(--navy)}
+.nav-cta{background:#31467f;color:#eaf0ff;padding:8px 22px;border-radius:8px;font-size:.88rem;font-weight:600;text-decoration:none;transition:all .18s;box-shadow:0 2px 8px rgba(2,7,20,.45);margin-left:8px}
+.nav-cta:hover{background:#3d5696;transform:translateY(-1px);box-shadow:var(--shadow-md)}
+
+/* HERO */
+.hero{padding:140px 2.5rem 80px;max-width:1180px;margin:0 auto;display:grid;grid-template-columns:1.05fr .95fr;gap:5rem;align-items:center}
+@media(max-width:880px){.hero{grid-template-columns:1fr;gap:3rem;padding:110px 2rem 60px}}
+.hero-badge{display:inline-flex;align-items:center;gap:8px;background:rgba(26,122,110,.09);border:1px solid rgba(26,122,110,.22);border-radius:20px;padding:5px 14px 5px 10px;font-size:.78rem;font-weight:600;color:var(--teal);margin-bottom:1.5rem;letter-spacing:.03em}
+.live-dot{width:7px;height:7px;border-radius:50%;background:var(--teal);animation:blink 2s infinite}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:.3}}
+h1{font-family:'Playfair Display',serif;font-size:clamp(2.6rem,4.5vw,4rem);font-weight:900;line-height:1.06;letter-spacing:-.03em;color:var(--navy);margin-bottom:1.4rem}
+h1 em{color:var(--teal);font-style:italic}
+.hero-body{font-size:1.05rem;color:var(--text-mid);line-height:1.82;margin-bottom:2.2rem;max-width:500px;font-weight:400}
+.hero-btns{display:flex;gap:10px;flex-wrap:wrap}
+.btn{padding:12px 26px;border-radius:9px;font-family:'Source Sans 3',sans-serif;font-weight:600;font-size:.92rem;cursor:pointer;border:none;text-decoration:none;transition:all .2s;display:inline-flex;align-items:center;gap:8px}
+.btn-navy{background:var(--navy);color:#fff;box-shadow:0 2px 14px rgba(26,39,68,.28)}
+.btn-navy:hover{background:var(--navy-mid);transform:translateY(-2px);box-shadow:0 6px 22px rgba(26,39,68,.3)}
+.btn-stroke{background:transparent;color:var(--text-mid);border:1.5px solid var(--border)}
+.btn-stroke:hover{border-color:var(--navy);color:var(--navy);transform:translateY(-2px)}
+.hero-trust{display:flex;gap:1.5rem;margin-top:2.2rem;padding-top:2rem;border-top:1px solid var(--border);flex-wrap:wrap}
+.trust-item{display:flex;align-items:center;gap:6px;font-size:.8rem;color:var(--text-dim);font-weight:500}
+
+/* PREVIEW CARD */
+.hero-visual{position:relative;animation:riseUp .7s .15s ease both}
+@keyframes riseUp{from{opacity:0;transform:translateY(28px)}to{opacity:1;transform:translateY(0)}}
+.preview-card{background:var(--ivory);border:1px solid var(--border);border-radius:16px;box-shadow:var(--shadow-lg);overflow:hidden}
+.pc-bar{background:var(--navy);padding:14px 18px;display:flex;align-items:center;gap:12px}
+.pc-dots{display:flex;gap:6px}
+.pc-dot{width:11px;height:11px;border-radius:50%}
+.pc-label{font-size:.72rem;color:rgba(255,255,255,.55);font-weight:500;flex:1;text-align:center}
+.pc-live{display:flex;align-items:center;gap:5px;font-size:.68rem;color:#4ade80;font-weight:700;letter-spacing:.05em}
+.pc-live-dot{width:6px;height:6px;border-radius:50%;background:#4ade80;animation:blink 1.5s infinite}
+.pc-body{padding:16px 18px}
+.pc-metrics{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:14px}
+.pc-metric{background:var(--cream);border:1px solid var(--border-lt);border-radius:8px;padding:10px 8px;text-align:center}
+.pc-val{font-family:'Playfair Display',serif;font-size:1.45rem;font-weight:700;line-height:1}
+.pc-lbl{font-size:.6rem;color:var(--text-dim);margin-top:3px;text-transform:uppercase;letter-spacing:.06em}
+.pc-rows{display:flex;flex-direction:column;gap:7px}
+.pc-row{display:flex;align-items:center;gap:9px;padding:8px 10px;border-radius:8px;background:var(--cream);border:1px solid var(--border-lt)}
+.pc-av{width:28px;height:28px;border-radius:7px;display:flex;align-items:center;justify-content:center;font-size:.62rem;font-weight:700;flex-shrink:0}
+.pc-name{font-size:.74rem;font-weight:600;color:var(--text);width:66px}
+.pc-track{flex:1;height:5px;background:var(--border);border-radius:3px;overflow:hidden}
+.pc-fill{height:100%;border-radius:3px;transition:width 1.5s ease}
+.pc-pill{font-size:.6rem;font-weight:700;padding:2px 8px;border-radius:20px;white-space:nowrap}
+
+/* STATS */
+.stats{background:var(--navy);padding:5rem 2.5rem}
+.stats-inner{max-width:900px;margin:0 auto;display:grid;grid-template-columns:repeat(4,1fr);gap:2rem;text-align:center}
+@media(max-width:680px){.stats-inner{grid-template-columns:repeat(2,1fr)}}
+.stat-n{font-family:'Playfair Display',serif;font-size:3rem;font-weight:900;line-height:1}
+.stat-n.teal{color:var(--teal-lt)}
+.stat-n.white{color:#fff}
+.stat-l{font-size:.78rem;color:rgba(255,255,255,.45);margin-top:7px;letter-spacing:.06em;text-transform:uppercase}
+
+/* FEATURES */
+.features{padding:6rem 2.5rem;max-width:1180px;margin:0 auto}
+.sec-tag{font-size:.72rem;font-weight:600;letter-spacing:.16em;text-transform:uppercase;color:var(--teal);margin-bottom:.9rem}
+.sec-title{font-family:'Playfair Display',serif;font-size:clamp(1.9rem,3.5vw,2.9rem);font-weight:900;color:var(--navy);line-height:1.12;letter-spacing:-.03em;margin-bottom:.9rem}
+.sec-sub{font-size:1rem;color:var(--text-mid);max-width:540px;line-height:1.78;margin-bottom:3.5rem;font-weight:400}
+.feat-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:1.5rem}
+@media(max-width:860px){.feat-grid{grid-template-columns:1fr 1fr}}
+@media(max-width:560px){.feat-grid{grid-template-columns:1fr}}
+.feat-card{background:var(--ivory);border:1px solid var(--border);border-radius:14px;padding:1.85rem;transition:all .22s;box-shadow:var(--shadow)}
+.feat-card:hover{transform:translateY(-4px);box-shadow:var(--shadow-md);border-color:rgba(26,122,110,.2)}
+.feat-icon{width:46px;height:46px;border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:1.35rem;margin-bottom:1.1rem}
+.fi-teal{background:rgba(26,122,110,.09)}
+.fi-navy{background:rgba(26,39,68,.07)}
+.fi-amber{background:rgba(201,112,16,.09)}
+.feat-name{font-family:'Playfair Display',serif;font-size:1.05rem;font-weight:700;color:var(--navy);margin-bottom:.45rem}
+.feat-desc{font-size:.87rem;color:var(--text-mid);line-height:1.72;font-weight:400}
+
+/* HOW */
+.how{background:var(--ivory);border-top:1px solid var(--border);border-bottom:1px solid var(--border);padding:6rem 2.5rem}
+.how-inner{max-width:960px;margin:0 auto}
+.steps{display:grid;grid-template-columns:repeat(3,1fr);gap:2.5rem;margin-top:3.5rem;position:relative}
+@media(max-width:700px){.steps{grid-template-columns:1fr;gap:1.5rem}}
+.steps::before{content:'';position:absolute;top:27px;left:calc(16.7% + 12px);right:calc(16.7% + 12px);height:1.5px;background:var(--border);z-index:0}
+@media(max-width:700px){.steps::before{display:none}}
+.step{text-align:center;z-index:1;position:relative}
+.step-ring{width:54px;height:54px;border-radius:50%;background:var(--ivory);border:1.5px solid var(--border);display:flex;align-items:center;justify-content:center;margin:0 auto 1.2rem;box-shadow:var(--shadow)}
+.step-num{font-family:'Playfair Display',serif;font-size:1.2rem;font-weight:900;color:var(--navy)}
+.step-name{font-family:'Playfair Display',serif;font-size:1rem;font-weight:700;color:var(--navy);margin-bottom:.45rem}
+.step-desc{font-size:.85rem;color:var(--text-mid);line-height:1.72;font-weight:400}
+
+/* FOR WHOM */
+.for-whom{padding:6rem 2.5rem;max-width:1180px;margin:0 auto;display:grid;grid-template-columns:1fr 1fr;gap:5rem;align-items:start}
+@media(max-width:820px){.for-whom{grid-template-columns:1fr;gap:3rem}}
+.persona-stack{display:flex;flex-direction:column;gap:1.1rem}
+.persona-card{background:var(--ivory);border:1px solid var(--border);border-radius:12px;padding:1.4rem 1.5rem;display:flex;gap:1rem;transition:all .2s;box-shadow:var(--shadow)}
+.persona-card:hover{box-shadow:var(--shadow-md);transform:translateY(-2px)}
+.p-icon{width:42px;height:42px;flex-shrink:0;display:flex;align-items:center;justify-content:center;background:var(--ivory);border:1px solid var(--border);border-radius:10px}
+.p-title{font-weight:700;color:var(--navy);margin-bottom:.3rem;font-size:.95rem}
+.p-desc{font-size:.85rem;color:var(--text-mid);line-height:1.68;font-weight:400}
+
+/* CTA */
+.cta{background:var(--navy);padding:7rem 2.5rem}
+.cta-inner{max-width:680px;margin:0 auto;text-align:center}
+.cta-title{font-family:'Playfair Display',serif;font-size:clamp(2.1rem,4.5vw,3.4rem);font-weight:900;color:#fff;line-height:1.08;letter-spacing:-.03em;margin-bottom:1.1rem}
+.cta-title em{color:var(--teal-lt);font-style:italic}
+.cta-sub{font-size:1rem;color:rgba(255,255,255,.55);line-height:1.78;margin-bottom:2.5rem;font-weight:400}
+.cta-btns{display:flex;gap:12px;justify-content:center;flex-wrap:wrap}
+.btn-teal{background:var(--teal);color:#fff;box-shadow:0 2px 14px rgba(26,122,110,.4)}
+.btn-teal:hover{background:var(--teal-lt);transform:translateY(-2px);box-shadow:0 6px 22px rgba(26,122,110,.4)}
+.btn-wghost{background:transparent;color:rgba(255,255,255,.75);border:1.5px solid rgba(255,255,255,.22)}
+.btn-wghost:hover{border-color:rgba(255,255,255,.55);color:#fff;transform:translateY(-2px)}
+
+footer{background:var(--cream);border-top:1px solid var(--border);padding:2.2rem 2.5rem;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:1rem}
+.footer-brand{display:flex;align-items:center;gap:10px}
+.footer-logo-mark{width:26px;height:26px;background:var(--navy);border-radius:6px;display:flex;align-items:center;justify-content:center}
+.footer-name{font-family:'Playfair Display',serif;font-weight:700;color:var(--navy);font-size:.95rem}
+.footer-text{font-size:.78rem;color:var(--text-dim)}
+
+@keyframes fadeUp{from{opacity:0;transform:translateY(20px)}to{opacity:1;transform:translateY(0)}}
+.hero-content{animation:fadeUp .5s ease both}
+
+/* SHOWCASE */
+.showcase{position:relative;background:var(--ivory);border:1px solid var(--border);border-radius:16px;box-shadow:var(--shadow-lg);overflow:hidden;min-height:340px}
+.sc-card{position:absolute;inset:0;padding:1.6rem 1.75rem 3rem;opacity:0;transform:translateY(14px);transition:all .45s cubic-bezier(.4,0,.2,1);pointer-events:none}
+.sc-card.sc-active{opacity:1;transform:translateY(0);pointer-events:auto}
+.sc-label{font-size:.72rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--teal);margin-bottom:1.1rem}
+.sc-metric-big{font-family:'Playfair Display',serif;font-size:3.2rem;font-weight:900;line-height:1;margin-bottom:.3rem}
+.sc-sub{font-size:.72rem;color:var(--text-dim);margin-bottom:1.1rem;letter-spacing:.04em}
+.sc-rows{display:flex;flex-direction:column;gap:7px}
+.sc-row{display:flex;align-items:center;gap:9px;padding:7px 9px;border-radius:7px;background:var(--cream);border:1px solid var(--border-lt)}
+.sc-av{width:26px;height:26px;border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:.6rem;font-weight:700;flex-shrink:0}
+.sc-name{font-size:.73rem;font-weight:600;color:var(--text);width:60px}
+.sc-track{flex:1;height:5px;background:var(--border);border-radius:3px;overflow:hidden}
+.sc-fill{height:100%;border-radius:3px}
+.sc-pill{font-size:.6rem;font-weight:700;padding:2px 8px;border-radius:20px;white-space:nowrap}
+.sc-pill-teal{background:rgba(26,122,110,.09);color:var(--teal)}
+.sc-pill-amber{background:rgba(201,112,16,.09);color:var(--amber)}
+.sc-hint-box{background:var(--teal-pale);border:1px solid rgba(26,122,110,.18);border-radius:10px;padding:1rem 1.1rem;margin-bottom:.9rem}
+.sc-hint-tag{font-size:.68rem;font-weight:700;color:var(--teal);text-transform:uppercase;letter-spacing:.08em;margin-bottom:.55rem}
+.sc-hint-text{font-size:.84rem;color:var(--text);line-height:1.72;font-style:italic}
+.sc-hint-meta{font-size:.72rem;color:var(--text-dim)}
+.sc-alert-box{display:flex;gap:12px;align-items:flex-start;background:rgba(201,112,16,.07);border:1px solid rgba(201,112,16,.22);border-radius:10px;padding:1rem 1.1rem;margin-bottom:.9rem}
+.sc-alert-title{font-size:.88rem;font-weight:700;color:var(--amber);margin-bottom:.2rem}
+.sc-alert-sub{font-size:.75rem;color:var(--text-mid)}
+.sc-stuck-grid{display:flex;flex-wrap:wrap;gap:6px}
+.sc-stuck-name{font-size:.72rem;font-weight:600;background:rgba(201,112,16,.09);color:var(--amber);padding:3px 10px;border-radius:20px}
+.sc-report-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:.9rem}
+.sc-rstat{background:var(--cream);border:1px solid var(--border-lt);border-radius:8px;padding:.75rem .5rem;text-align:center}
+.sc-rval{font-family:'Playfair Display',serif;font-size:1.5rem;font-weight:900;color:var(--navy);line-height:1}
+.sc-rlbl{font-size:.58rem;color:var(--text-dim);margin-top:3px;text-transform:uppercase;letter-spacing:.05em}
+.sc-summary{font-size:.8rem;color:var(--text-mid);line-height:1.7;font-style:italic;background:var(--cream);border:1px solid var(--border-lt);border-radius:8px;padding:.75rem .9rem}
+.sc-dots{position:absolute;bottom:.9rem;left:50%;transform:translateX(-50%);display:flex;gap:7px}
+.sc-dot{width:7px;height:7px;border-radius:50%;background:var(--border);cursor:pointer;transition:all .2s}
+.sc-dot-active{background:var(--teal);transform:scale(1.2)}
+
+/* CONCEPT VIS */
+.concept-vis{background:var(--ivory);border:1px solid var(--border);border-radius:16px;box-shadow:var(--shadow-lg);overflow:hidden;animation:riseUp .7s .15s ease both}
+.cv-bar{background:var(--navy);padding:11px 16px;display:flex;align-items:center;gap:10px}
+.cv-bar-dots{display:flex;gap:5px}
+.cvd{width:10px;height:10px;border-radius:50%;display:block}
+.cv-bar-title{flex:1;font-size:.72rem;color:rgba(255,255,255,.55);text-align:center;font-weight:500}
+.cv-live{display:flex;align-items:center;gap:5px;font-size:.65rem;font-weight:700;color:#4ade80;letter-spacing:.06em}
+.cv-live-dot{width:5px;height:5px;border-radius:50%;background:#4ade80;animation:blink 1.5s infinite}
+.cv-body{display:grid;grid-template-columns:1fr 52px 1fr;gap:0;padding:14px 16px;align-items:start}
+.cv-side{display:flex;flex-direction:column;gap:9px}
+.cv-side-label{font-size:.65rem;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:var(--text-dim)}
+.cv-editor{background:#1a2744;border-radius:8px;padding:10px 12px;font-family:'Courier New',monospace;font-size:.72rem;line-height:1.8;display:flex;flex-direction:column;gap:0}
+.cv-editor-line{color:rgba(255,255,255,.85);white-space:nowrap;overflow:hidden}
+.cv-indent{padding-left:16px}
+.cv-dim{opacity:.4}
+.cv-kw{color:#7dd3fc}.cv-fn{color:#86efac}.cv-str{color:#fbbf24}.cv-num{color:#c084fc}.cv-comment{color:#94a3b8;font-style:italic}
+.cv-cursor{animation:blink 1s infinite;color:#7dd3fc}
+.cv-signals{display:flex;flex-direction:column;gap:5px}
+.cv-signal{display:flex;align-items:center;gap:7px;font-size:.7rem;font-weight:600;opacity:0;transition:opacity .5s}
+.cv-signal.show{opacity:1}
+.cv-signal-dot{width:7px;height:7px;border-radius:50%;flex-shrink:0}
+.cv-signal-idle{color:var(--amber)}.cv-signal-idle .cv-signal-dot{background:var(--amber)}
+.cv-signal-error{color:var(--red)}.cv-signal-error .cv-signal-dot{background:var(--red)}
+.cv-center{display:flex;flex-direction:column;align-items:center;justify-content:center;padding-top:24px;gap:4px}
+.cv-engine{width:48px;height:48px;border-radius:50%;background:var(--teal);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px;box-shadow:0 0 0 0 rgba(26,122,110,.4);transition:box-shadow .4s}
+.cv-engine.pulse{box-shadow:0 0 0 10px rgba(26,122,110,0)}
+.cv-engine-label{font-size:.55rem;font-weight:800;color:#fff;letter-spacing:.08em;line-height:1}
+.cv-engine-tag{font-size:.58rem;color:var(--teal);font-weight:600;text-align:center;min-height:14px;transition:opacity .3s}
+.cv-flow-line{width:1.5px;height:10px;background:linear-gradient(to bottom,var(--teal),transparent);opacity:.4}
+.cv-dash-preview{display:flex;flex-direction:column;gap:5px}
+.cv-dash-row{display:flex;align-items:center;gap:7px;background:var(--cream);border-radius:6px;padding:6px 8px;border:1px solid var(--border-lt)}
+.cv-dash-bar{height:5px;border-radius:3px;transition:width 1s ease}
+.cv-dash-row-green .cv-dash-bar{background:var(--teal)}
+.cv-dash-row-amber .cv-dash-bar{background:var(--amber)}
+.cv-dash-row-red .cv-dash-bar{background:var(--red)}
+.cv-dash-status{width:8px;height:8px;border-radius:50%;flex-shrink:0;margin-left:auto}
+.cv-ds-green{background:var(--teal)}.cv-ds-amber{background:var(--amber)}.cv-ds-red{background:var(--red)}
+.cv-hint-bubble{display:flex;align-items:center;gap:6px;background:rgba(26,122,110,.08);border:1px solid rgba(26,122,110,.25);border-radius:20px;padding:5px 11px;font-size:.68rem;font-weight:600;color:var(--teal);opacity:0;transition:opacity .5s;width:fit-content}
+.cv-hint-bubble.show{opacity:1}
+.cv-hint-icon{display:flex}
+.cv-footer{display:flex;align-items:center;justify-content:center;gap:4px;padding:10px 16px 12px;border-top:1px solid var(--border-lt);background:var(--cream)}
+.cv-step{display:flex;align-items:center;gap:5px;font-size:.65rem;font-weight:600;color:var(--text-dim);transition:color .4s}
+.cv-step-num{width:18px;height:18px;border-radius:50%;background:var(--border);color:var(--text-dim);display:flex;align-items:center;justify-content:center;font-size:.6rem;font-weight:700;flex-shrink:0;transition:all .4s}
+.cv-step.cv-step-active{color:var(--navy)}
+.cv-step.cv-step-active .cv-step-num{background:var(--teal);color:#fff}
+.cv-step-arrow{font-size:.65rem;color:var(--border);margin:0 2px}
+
+.join-modal{position:fixed;inset:0;z-index:200;background:rgba(10,14,24,.66);backdrop-filter:blur(6px);display:none;align-items:center;justify-content:center;padding:1.2rem}
+.join-modal.show{display:flex}
+.join-card{width:100%;max-width:520px;background:var(--ivory);border:1px solid var(--border);border-radius:14px;box-shadow:var(--shadow-lg);padding:1.2rem}
+.join-head{font-family:'Playfair Display',serif;font-size:1.35rem;font-weight:900;color:var(--navy);margin-bottom:.25rem}
+.join-subtext{font-size:.86rem;color:var(--text-mid);margin-bottom:.9rem}
+.join-label{display:block;font-size:.74rem;text-transform:uppercase;letter-spacing:.06em;color:var(--text-dim);font-weight:700;margin-bottom:6px}
+.join-input{width:100%;background:var(--cream);border:1px solid var(--border);border-radius:8px;padding:10px 12px;color:var(--text);outline:none}
+.join-input:focus{border-color:var(--teal)}
+.join-error{display:none;color:var(--red);font-size:.79rem;margin-top:.55rem}
+.join-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:1rem}
+</style>
+</head>
+<body>
+
+<nav class="nav">
+  <div class="nav-inner">
+    <a href="index.html" class="nav-logo">
+      <div class="logo-mark">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
+      </div>
+      <span class="logo-text">Edu<em>Pulse</em></span>
+    </a>
+    <div class="nav-links">
+      <a class="nav-link" href="teacher.html">For Teachers</a>
+      <a class="nav-link" href="student.html">For Students</a>
+      <a class="nav-cta" href="teacher.html">Start a Session</a>
+    </div>
+  </div>
+</nav>
+
+<section style="padding-top:68px">
+  <div class="hero">
+    <div class="hero-content">
+      <div class="hero-badge"><div class="live-dot"></div>Live in any classroom, right now</div>
+      <h1>Know exactly who<br>needs help — <em>now.</em></h1>
+      <p class="hero-body">EduPulse gives teachers real-time visibility into student understanding. No more guessing. No more students falling silently behind. See every student's progress, confusion, and engagement — as it happens.</p>
+      <div class="hero-btns">
+        <a href="teacher.html" class="btn btn-navy"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="13" rx="2"/><path d="M8 21h8M12 17v4"/></svg> Open Teacher Dashboard</a>
+        <a href="#" onclick="openJoinModal();return false;" class="btn btn-stroke"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 10v6M2 10l10-5 10 5-10 5z"/><path d="M6 12v5c3 3 9 3 12 0v-5"/></svg> Join as Student</a>
+      </div>
+      <div class="hero-trust">
+        <div class="trust-item"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg> Privacy-first design</div>
+        <div class="trust-item"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg> No installation needed</div>
+        <div class="trust-item"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg> Works in any browser</div>
+      </div>
+    </div>
+
+    <div class="hero-visual">
+      <div class="concept-vis">
+        <!-- Header bar -->
+        <div class="cv-bar">
+          <div class="cv-bar-dots">
+            <span class="cvd" style="background:#ff5f57"></span>
+            <span class="cvd" style="background:#febc2e"></span>
+            <span class="cvd" style="background:#28c840"></span>
+          </div>
+          <span class="cv-bar-title">EduPulse — How It Works</span>
+          <div class="cv-live"><div class="cv-live-dot"></div>LIVE</div>
+        </div>
+
+        <div class="cv-body">
+          <!-- Left: Student side -->
+          <div class="cv-side cv-student-side">
+            <div class="cv-side-label">Student</div>
+            <div class="cv-editor">
+              <div class="cv-editor-line"><span class="cv-kw">def</span> <span class="cv-fn">reverse</span>(s):</div>
+              <div class="cv-editor-line cv-indent">result = <span class="cv-str">""</span></div>
+              <div class="cv-editor-line cv-indent cv-typing" id="cvTypingLine"><span class="cv-kw">for</span> i <span class="cv-kw">in</span> <span class="cv-fn">range</span>(<span class="cv-num">len</span>(s))<span class="cv-cursor">|</span></div>
+              <div class="cv-editor-line cv-dim">    <span class="cv-comment"># stuck here…</span></div>
+            </div>
+            <!-- Signals pulsing out -->
+            <div class="cv-signals">
+              <div class="cv-signal cv-signal-idle" id="sig1">
+                <div class="cv-signal-dot"></div>
+                <span>2 min idle</span>
+              </div>
+              <div class="cv-signal cv-signal-error" id="sig2">
+                <div class="cv-signal-dot"></div>
+                <span>3 errors</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Center: AI Engine -->
+          <div class="cv-center">
+            <div class="cv-engine" id="cvEngine">
+              <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17" stroke-width="3"/></svg>
+              <span class="cv-engine-label">AI</span>
+            </div>
+            <div class="cv-flow-line"></div>
+            <div class="cv-engine-tag" id="cvEngineTag">Analysing…</div>
+            <div class="cv-flow-line"></div>
+          </div>
+
+          <!-- Right: Teacher side -->
+          <div class="cv-side cv-teacher-side">
+            <div class="cv-side-label">Teacher</div>
+            <div class="cv-dash-preview">
+              <div class="cv-dash-row cv-dash-row-green">
+                <div class="cv-dash-bar" style="width:82%"></div>
+                <div class="cv-dash-status cv-ds-green"></div>
+              </div>
+              <div class="cv-dash-row cv-dash-row-amber">
+                <div class="cv-dash-bar" style="width:38%"></div>
+                <div class="cv-dash-status cv-ds-amber" id="alertDot"></div>
+              </div>
+              <div class="cv-dash-row cv-dash-row-green">
+                <div class="cv-dash-bar" style="width:71%"></div>
+                <div class="cv-dash-status cv-ds-green"></div>
+              </div>
+              <div class="cv-dash-row cv-dash-row-red" id="flagRow" style="opacity:.4">
+                <div class="cv-dash-bar" style="width:95%"></div>
+                <div class="cv-dash-status cv-ds-red"></div>
+              </div>
+            </div>
+            <!-- Hint delivery -->
+            <div class="cv-hint-bubble" id="cvHintBubble">
+              <div class="cv-hint-icon">
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#1a7a6e" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17" stroke-width="3"/></svg>
+              </div>
+              <span>Hint sent to student</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Bottom steps -->
+        <div class="cv-footer">
+          <div class="cv-step cv-step-active" id="cvsA">
+            <div class="cv-step-num">1</div><span>Student works</span>
+          </div>
+          <div class="cv-step-arrow">→</div>
+          <div class="cv-step" id="cvsB">
+            <div class="cv-step-num">2</div><span>AI detects struggle</span>
+          </div>
+          <div class="cv-step-arrow">→</div>
+          <div class="cv-step" id="cvsC">
+            <div class="cv-step-num">3</div><span>Teacher sees alert</span>
+          </div>
+          <div class="cv-step-arrow">→</div>
+          <div class="cv-step" id="cvsD">
+            <div class="cv-step-num">4</div><span>Hint delivered</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="stats">
+  <div class="stats-inner">
+    <div><div class="stat-n teal" id="s1">0</div><div class="stat-l">Students monitored</div></div>
+    <div><div class="stat-n white" id="s2">0%</div><div class="stat-l">Average understanding</div></div>
+    <div><div class="stat-n teal" id="s3">0</div><div class="stat-l">AI hints delivered</div></div>
+    <div><div class="stat-n white" id="s4">0</div><div class="stat-l">Integrity flags raised</div></div>
+  </div>
+</section>
+
+<section class="features">
+  <div class="sec-tag">Platform Capabilities</div>
+  <h2 class="sec-title">Everything a teacher<br>needs to see</h2>
+  <p class="sec-sub">EduPulse works silently in the background, turning invisible student behaviour into clear, actionable insights — without adding complexity to your classroom.</p>
+  <div class="feat-grid">
+    <div class="feat-card"><div class="feat-icon fi-teal"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#1a7a6e" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.55a11 11 0 0 1 14.08 0"/><path d="M1.42 9a16 16 0 0 1 21.16 0"/><path d="M8.53 16.11a6 6 0 0 1 6.95 0"/><circle cx="12" cy="20" r="1" fill="#1a7a6e"/></svg></div><div class="feat-name">Real-Time Monitoring</div><div class="feat-desc">Every student's progress, idle time, and error rate streams live to your dashboard. Know instantly who is working and who is stuck.</div></div>
+    <div class="feat-card"><div class="feat-icon fi-navy"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#1a2744" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><circle cx="12" cy="12" r="10"/><line x1="12" y1="17" x2="12.01" y2="17" stroke-width="3"/></svg></div><div class="feat-name">AI Hint Engine</div><div class="feat-desc">When a student stalls, the system automatically delivers a progressive hint — from a concept nudge to a structural clue — without giving the answer away.</div></div>
+    <div class="feat-card"><div class="feat-icon fi-amber"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#c97010" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17" stroke-width="3"/></svg></div><div class="feat-name">Academic Integrity</div><div class="feat-desc">Large paste events are detected the moment they happen. Your dashboard flags them immediately so you can follow up in the right way.</div></div>
+    <div class="feat-card"><div class="feat-icon fi-teal"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#1a7a6e" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16" stroke-width="3"/></svg></div><div class="feat-name">Confusion Detection</div><div class="feat-desc">When several students stall at the same time, EduPulse spots the cluster and alerts you — so you can pause and re-explain before the class loses the thread.</div></div>
+    <div class="feat-card"><div class="feat-icon fi-navy"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#1a2744" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg></div><div class="feat-name">Understanding Score</div><div class="feat-desc">Each student receives a composite score updated every few seconds, weighing progress, accuracy, hint usage, and engagement into one clear number.</div></div>
+    <div class="feat-card"><div class="feat-icon fi-amber"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#c97010" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg></div><div class="feat-name">Post-Class Report</div><div class="feat-desc">At the end of every session, EduPulse generates a structured summary — which topics were hardest, who excelled, and who needs a follow-up conversation.</div></div>
+  </div>
+</section>
+
+<section class="how">
+  <div class="how-inner">
+    <div class="sec-tag">Getting Started</div>
+    <h2 class="sec-title">Up and running in<br>under two minutes</h2>
+    <div class="steps">
+      <div class="step"><div class="step-ring"><div class="step-num">1</div></div><div class="step-name">Teacher opens a session</div><div class="step-desc">Click <em>Start Session</em> in the Teacher Dashboard and share the auto-generated Session ID with your class.</div></div>
+      <div class="step"><div class="step-ring"><div class="step-num">2</div></div><div class="step-name">Students join and work</div><div class="step-desc">Students open the Student Workspace in their browser, paste the session link, and begin the assigned tasks.</div></div>
+      <div class="step"><div class="step-ring"><div class="step-num">3</div></div><div class="step-name">EduPulse does the rest</div><div class="step-desc">Signals stream live to your dashboard. The AI handles hints, flags integrity events, and prepares your post-class report — automatically.</div></div>
+    </div>
+  </div>
+</section>
+
+<section class="for-whom">
+  <div>
+    <div class="sec-tag">Designed For Everyone</div>
+    <h2 class="sec-title">Built for teachers.<br>Loved by students.</h2>
+    <p class="sec-sub" style="margin-bottom:0">Simple enough for a first-year lecturer. Powerful enough for a seasoned professor running a 60-person lab. Clear enough for every student, regardless of technical background.</p>
+  </div>
+  <div class="persona-stack">
+    <div class="persona-card"><div class="p-icon"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#1a2744" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/><line x1="19" y1="8" x2="23" y2="8"/><line x1="21" y1="6" x2="21" y2="10"/></svg></div><div><div class="p-title">For Professors &amp; Lecturers</div><div class="p-desc">Large, readable dashboard with clear colour indicators. No technical setup required. See at a glance who needs help without interrupting the flow of a lecture.</div></div></div>
+    <div class="persona-card"><div class="p-icon"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#1a2744" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg></div><div><div class="p-title">For Students</div><div class="p-desc">A clean, distraction-free workspace with a code editor, task list, and AI hints available on demand — or automatically when you get stuck.</div></div></div>
+    <div class="persona-card"><div class="p-icon"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#1a2744" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg></div><div><div class="p-title">For Institutions</div><div class="p-desc">Privacy-first architecture. No screen recording. No data beyond what is strictly needed. Deployable on your own infrastructure in minutes.</div></div></div>
+  </div>
+</section>
+
+<section class="cta">
+  <div class="cta-inner">
+    <h2 class="cta-title">Ready to see your<br>class more <em>clearly?</em></h2>
+    <p class="cta-sub">Open the Teacher Dashboard, launch a session, and invite a student to join. See the dashboard come alive in real time — no sign-up required.</p>
+    <div class="cta-btns">
+      <a class="btn btn-teal" href="teacher.html">Open Teacher Dashboard →</a>
+      <a class="btn btn-wghost" href="#" onclick="openJoinModal();return false;">Join as Student</a>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="footer-brand">
+    <div class="footer-logo-mark"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg></div>
+    <span class="footer-name">EduPulse</span>
+  </div>
+  <div class="footer-text">Real-Time Classroom Intelligence · Built for every classroom, every teacher.</div>
+</footer>
+
+<div id="joinModal" class="join-modal" onclick="if(event.target===this)closeJoinModal()">
+  <div class="join-card">
+    <div class="join-head">Join as Student</div>
+    <div class="join-subtext">Paste the full session link shared by your teacher.</div>
+    <label class="join-label">Session Link</label>
+    <input id="homeSessionLink" class="join-input" placeholder="e.g. https://.../student.html?session=a4682895" />
+    <div id="homeJoinError" class="join-error">Please paste a valid session link.</div>
+    <div class="join-actions">
+      <button class="btn btn-stroke" type="button" onclick="closeJoinModal()">Cancel</button>
+      <button class="btn btn-navy" type="button" onclick="joinFromHome()">Open Workspace</button>
+    </div>
+  </div>
+</div>
+
+<script>
+
+function extractSessionId(value){
+  const raw=(value||'').trim();
+  if(!raw) return '';
+  try{
+    const u=new URL(raw);
+    const sid=(u.searchParams.get('session')||'').trim();
+    if(sid) return sid;
+  }catch(_){}
+  const m=raw.match(/[?&]session=([A-Za-z0-9_-]{4,32})/i);
+  if(m) return m[1];
+  return raw;
+}
+
+function openJoinModal(){
+  const m=document.getElementById('joinModal');
+  if(!m) return;
+  m.classList.add('show');
+  document.getElementById('homeJoinError').style.display='none';
+  document.getElementById('homeSessionLink')?.focus();
+}
+function closeJoinModal(){
+  document.getElementById('joinModal')?.classList.remove('show');
+}
+function joinFromHome(){
+  const raw=document.getElementById('homeSessionLink')?.value||'';
+  const sid=extractSessionId(raw);
+  const err=document.getElementById('homeJoinError');
+  if(!sid){
+    if(err) err.style.display='block';
+    return;
+  }
+  window.location.href=`student.html?session=${encodeURIComponent(sid)}`;
+}
+
+// Concept visualisation animation loop
+(function(){
+  const steps = ['cvsA','cvsB','cvsC','cvsD'];
+  const tags   = ['Idle detected…','Generating hint…','Alerting teacher…','Hint delivered!'];
+  let phase = 0;
+
+  function setStep(n){
+    steps.forEach((id,i)=>{
+      const el=document.getElementById(id);
+      if(el)el.classList.toggle('cv-step-active',i<=n);
+    });
+    const tag=document.getElementById('cvEngineTag');
+    if(tag)tag.textContent=tags[n]||'';
+  }
+
+  function runCycle(){
+    // Phase 0: student working — signals hidden
+    document.getElementById('sig1')?.classList.remove('show');
+    document.getElementById('sig2')?.classList.remove('show');
+    document.getElementById('cvHintBubble')?.classList.remove('show');
+    document.getElementById('alertDot')?.style && (document.getElementById('alertDot').style.transform='scale(1)');
+    document.getElementById('flagRow') && (document.getElementById('flagRow').style.opacity='0.4');
+    setStep(0);
+
+    // Phase 1: signals appear
+    setTimeout(()=>{
+      document.getElementById('sig1')?.classList.add('show');
+      setStep(1);
+      const eng=document.getElementById('cvEngine');
+      if(eng){eng.classList.add('pulse');setTimeout(()=>eng.classList.remove('pulse'),600);}
+    },1800);
+
+    setTimeout(()=>{
+      document.getElementById('sig2')?.classList.add('show');
+    },2400);
+
+    // Phase 2: teacher alert
+    setTimeout(()=>{
+      setStep(2);
+      const dot=document.getElementById('alertDot');
+      if(dot){dot.style.transform='scale(1.6)';setTimeout(()=>{dot.style.transform='scale(1)';},400);}
+    },3600);
+
+    // Phase 3: hint delivered
+    setTimeout(()=>{
+      setStep(3);
+      document.getElementById('cvHintBubble')?.classList.add('show');
+    },5000);
+
+    // Restart
+    setTimeout(runCycle, 7500);
+  }
+
+  setTimeout(runCycle, 800);
+})();
+
+// existing counter animation
+function animCount(id,end,suf,dur){
+  const el=document.getElementById(id),t=Date.now();
+  const tick=()=>{const p=Math.min((Date.now()-t)/dur,1),e=1-Math.pow(1-p,3);el.textContent=Math.round(e*end)+suf;if(p<1)requestAnimationFrame(tick);};
+  tick();
+}
+setTimeout(()=>{animCount('s1',247,'',1500);animCount('s2',72,'%',1500);animCount('s3',831,'',1700);animCount('s4',14,'',1300);},300);
+// Subtle live preview animation
+let dv=72;
+setInterval(()=>{dv=Math.max(60,Math.min(85,dv+(Math.random()*3-1.2)));document.getElementById('dm1').textContent=Math.round(dv)+'%';},3200);
+</script>
+</body>
+</html>
