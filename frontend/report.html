@@ -28,7 +28,7 @@ body{font-family:'Source Sans 3',sans-serif;background:var(--cream);color:var(--
 .header{display:flex;justify-content:space-between;gap:1rem;align-items:flex-start;flex-wrap:wrap;margin-bottom:1.25rem}
 .title{font-family:'Playfair Display',serif;font-size:2rem;color:var(--navy);margin:.25rem 0}
 .meta{font-size:.84rem;color:var(--text-dim);display:flex;gap:1rem;flex-wrap:wrap}
-.kpi-row{display:grid;grid-template-columns:repeat(5,1fr);gap:.8rem;margin:1rem 0}
+.kpi-row{display:grid;grid-template-columns:repeat(6,1fr);gap:.8rem;margin:1rem 0}
 @media(max-width:900px){.kpi-row{grid-template-columns:repeat(3,1fr)}}
 @media(max-width:580px){.kpi-row{grid-template-columns:repeat(2,1fr)}}
 @media(max-width:480px){.kpi-row{grid-template-columns:1fr 1fr}.u-label{width:110px}.title{font-size:1.5rem}.page{padding:80px .9rem 1.5rem}}
@@ -92,6 +92,7 @@ body{font-family:'Source Sans 3',sans-serif;background:var(--cream);color:var(--
     <div class="kpi"><div class="kpi-label">Quiz Accuracy</div><div class="kpi-val" id="kpiUnderstanding">—</div><div class="kpi-sub" id="kpiQuizSub">no quiz submitted</div></div>
     <div class="kpi"><div class="kpi-label">AI Hints</div><div class="kpi-val" id="kpiHints">0</div><div class="kpi-sub">total delivered</div></div>
     <div class="kpi"><div class="kpi-label">Help Requests</div><div class="kpi-val" id="kpiHelp">0</div><div class="kpi-sub">students asked explicitly</div></div>
+    <div class="kpi"><div class="kpi-label">Teacher Nudges</div><div class="kpi-val" id="kpiNudges">0</div><div class="kpi-sub">teacher interventions</div></div>
     <div class="kpi"><div class="kpi-label">Need Follow-up</div><div class="kpi-val" id="kpiCritical">0</div><div class="kpi-sub">&ge;3 hints or flagged</div></div>
   </div>
 
@@ -149,6 +150,7 @@ function setKpis(report){
     : `${a.quiz_submitted_count ?? 0}/${a.total_students ?? 0} submitted`;
   byId('kpiHints').textContent = a.total_hints ?? 0;
   byId('kpiHelp').textContent = a.help_request_count ?? 0;
+  byId('kpiNudges').textContent = a.teacher_intervention_count ?? 0;
   byId('kpiCritical').textContent = a.critical_students ?? 0;
 }
 

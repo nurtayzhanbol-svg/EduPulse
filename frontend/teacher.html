@@ -798,6 +798,13 @@
             letter-spacing: .05em
         }
 
+        .nudge-btn {
+            width: 100%;
+            margin-top: .6rem;
+            padding: .4rem .7rem;
+            font-size: .74rem;
+        }
+
         .flag-note {
             display: flex;
             align-items: center;
@@ -1447,6 +1454,26 @@
 
             <div class="modal-actions" style="margin-top: 1.5rem;">
                 <button class="btn btn-ghost" onclick="closeStudentModal()">Close Details</button>
+                <button class="btn btn-navy" onclick="openNudgeModal(openStudentId)">✋ Nudge Student</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- NUDGE MODAL -->
+    <div class="modal-overlay" id="nudgeModal">
+        <div class="modal" role="dialog" aria-modal="true" aria-labelledby="nudgeTitle" style="max-width: 480px;">
+            <div class="modal-heading" id="nudgeTitle">Nudge <span id="nudgeName"></span></div>
+            <div class="modal-sub">A short message only this student will see, shown as coming from you (not the AI).</div>
+            <div class="option-group" role="radiogroup" aria-label="Nudge type" style="margin-bottom:.8rem">
+                <button type="button" class="opt-chip active" role="radio" aria-checked="true" data-value="preset" onclick="selectNudgeKind(this)"><span class="opt-label">Encouragement</span></button>
+                <button type="button" class="opt-chip" role="radio" aria-checked="false" data-value="custom" onclick="selectNudgeKind(this)"><span class="opt-label">Custom hint</span></button>
+            </div>
+            <div id="nudgePreset" style="font-size:.9rem;color:var(--text-mid);background:var(--cream);border:1px solid var(--border);border-radius:9px;padding:.8rem 1rem">“You're doing fine, keep going”</div>
+            <textarea class="form-input" id="nudgeText" rows="3" maxlength="280" placeholder="e.g. Look again at the loop condition on line 4." style="display:none"></textarea>
+            <p id="nudgeStatus" style="font-size:.82rem;color:var(--text-dim);margin:8px 0 0;min-height:20px" aria-live="polite"></p>
+            <div class="modal-actions">
+                <button class="btn btn-ghost" onclick="closeNudgeModal()">Cancel</button>
+                <button class="btn btn-navy" id="nudgeSend" onclick="sendNudge()">Send to Student</button>
             </div>
         </div>
     </div>
@@ -1605,6 +1632,12 @@
             sessionId = sid;
             sessionStorage.setItem(TEACHER_SESSION_KEY, sid);
             status.textContent = '';
+            if (data.launched === false) {
+                // Still in review: nobody has joined yet, so pick up where the teacher left off.
+                pendingSession = data;
+                showTaskReview(data);
+                return;
+            }
             showDashboard(data, true);
             classStats.hints = Object.values(data.students || {}).reduce((a, s) => a + (s.hints_given || 0), 0);
             applyDashboard(data);
@@ -1714,17 +1747,15 @@
                 return;
             }
             btn.disabled = true;
-            status.textContent = 'Saving task…';
+            status.textContent = 'Launching session…';
             status.style.color = 'var(--text-dim)';
             try {
-                if (description !== (pendingSession && pendingSession.task_description)) {
-                    const res = await fetch(`${API}/api/sessions/${sessionId}/task`, {
-                        method: 'PATCH',
-                        headers: authHeaders({ 'Content-Type': 'application/json' }),
-                        body: JSON.stringify({ task_description: description }),
-                    });
-                    if (!res.ok) throw new Error(await parseApiError(res));
-                }
+                const res = await fetch(`${API}/api/sessions/${sessionId}/launch`, {
+                    method: 'POST',
+                    headers: authHeaders({ 'Content-Type': 'application/json' }),
+                    body: JSON.stringify({ task_description: description }),
+                });
+                if (!res.ok) throw new Error(await parseApiError(res));
                 document.getElementById('reviewPanel').style.display = 'none';
                 showDashboard({ ...(pendingSession || {}), task_description: description });
                 initSocket(sessionId);
@@ -1943,6 +1974,7 @@
           <div class="s-met"><div class="s-met-val">${idle}</div><div class="s-met-lbl">Idle</div></div>
           <div class="s-met"><div class="s-met-val">${s.hints_given || 0} / ${s.help_requests_count || 0}</div><div class="s-met-lbl">Hints / Asked</div></div>
         </div>
+        <button type="button" class="btn btn-ghost nudge-btn" aria-label="Nudge ${s.name.replace(/"/g, '&quot;')}" onclick="event.stopPropagation(); openNudgeModal('${s.student_id}')">✋ Nudge${s.teacher_nudges_count ? ` (${s.teacher_nudges_count})` : ''}</button>
         ${pasteCount > 0 ? `<div class="flag-note"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/></svg> ${pasteCount} paste event${pasteCount > 1 ? 's' : ''} — observation only</div>` : ''}
         ${pasteCount === 0 && idleSec > 120 ? `<div class="idle-note"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg> Idle for ${idle} — may need assistance</div>` : ''}
       </div>`;
@@ -2176,8 +2208,73 @@
             document.getElementById('studentModal').classList.remove('show');
         }
 
+        // ── Teacher nudge (one student, teacher-authored, logged as an intervention) ──
+        const NUDGE_PRESET = "You're doing fine, keep going";
+        let nudgeStudentId = null;
+        let nudgeKind = 'preset';
+
+        function selectNudgeKind(btn) {
+            nudgeKind = btn.dataset.value;
+            btn.parentElement.querySelectorAll('.opt-chip').forEach(b => {
+                const on = b === btn;
+                b.classList.toggle('active', on);
+                b.setAttribute('aria-checked', String(on));
+            });
+            document.getElementById('nudgePreset').style.display = nudgeKind === 'preset' ? 'block' : 'none';
+            const text = document.getElementById('nudgeText');
+            text.style.display = nudgeKind === 'custom' ? 'block' : 'none';
+            if (nudgeKind === 'custom') text.focus();
+        }
+
+        function openNudgeModal(studentId) {
+            const s = students[studentId];
+            if (!s) return;
+            nudgeStudentId = studentId;
+            document.getElementById('nudgeName').textContent = s.name;
+            document.getElementById('nudgeStatus').textContent = '';
+            document.getElementById('nudgeText').value = '';
+            document.getElementById('nudgeSend').disabled = false;
+            selectNudgeKind(document.querySelector('#nudgeModal .opt-chip[data-value="preset"]'));
+            document.getElementById('nudgeModal').classList.add('show');
+        }
+
+        function closeNudgeModal() {
+            nudgeStudentId = null;
+            document.getElementById('nudgeModal').classList.remove('show');
+        }
+
+        async function sendNudge() {
+            const s = students[nudgeStudentId];
+            if (!s) return;
+            const status = document.getElementById('nudgeStatus');
+            const message = nudgeKind === 'preset' ? NUDGE_PRESET : document.getElementById('nudgeText').value.trim();
+            if (!message) {
+                status.textContent = '⚠️ Type a short hint first.';
+                status.style.color = 'var(--red)';
+                return;
+            }
+            const btn = document.getElementById('nudgeSend');
+            btn.disabled = true;
+            status.textContent = 'Sending…';
+            status.style.color = 'var(--text-dim)';
+            try {
+                const res = await fetch(`${API}/api/sessions/${sessionId}/students/${encodeURIComponent(nudgeStudentId)}/nudge`, {
+                    method: 'POST',
+                    headers: authHeaders({ 'Content-Type': 'application/json' }),
+                    body: JSON.stringify({ message }),
+                });
+                if (!res.ok) throw new Error(await parseApiError(res));
+                pushFeed('info', `You nudged <strong>${s.name}</strong>: “${message.replace(/</g, '&lt;')}”`);
+                closeNudgeModal();
+            } catch (e) {
+                status.textContent = '❌ ' + e.message;
+                status.style.color = 'var(--red)';
+                btn.disabled = false;
+            }
+        }
+
         document.addEventListener('keydown', (e) => {
-            if (e.key === 'Escape') { closeEndModal(); closeStudentModal(); }
+            if (e.key === 'Escape') { closeEndModal(); closeStudentModal(); closeNudgeModal(); }
             if ((e.key === 'Enter' || e.key === ' ') && e.target.classList.contains('student-card')) { e.preventDefault(); e.target.click(); }
         });
 
