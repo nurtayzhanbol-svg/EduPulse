@@ -839,10 +839,10 @@ async def telemetry(sid, data):
             session_manager.persist_session(session)
             await broadcast_dashboard(session)
 
-    # Plagiarism alert
-    if actions.get("plagiarism_alert"):
-        alert = actions["plagiarism_alert"]
-        alert["type"] = "plagiarism"
+    # Large paste: a neutral observation for the teacher only, never sent to students.
+    if actions.get("large_paste_alert"):
+        alert = actions["large_paste_alert"]
+        alert["type"] = "large_paste"
         alert.setdefault("timestamp", datetime.now().timestamp())
         session.alerts.append(alert)
         await sio.emit("alert", alert, room=teacher_room(session_id))

@@ -71,12 +71,12 @@ samples/              demo/test PDF fixtures
 
 - **Teacher** creates a session (optionally from a class PDF), shares a join link, and watches a live
   dashboard: per-student attention status (green / yellow / red = "needs attention now"), idle time,
-  help requests, hints sent, paste alerts and quiz scores. The teacher can end the session (post-class
+  help requests, hints sent, large-paste observations and quiz scores. The teacher can end the session (post-class
   report) or delete all of its data.
 - **Students** join by link, work in a plain text editor, can ask "I'm confused" for a progressive AI
   hint, and answer the teacher's quiz. Quiz results are the only correctness evidence EduPulse shows;
-  behaviour-derived signals (idle time, help requests, paste length) are attention signals, not a
-  measure of learning.
+  behaviour-derived signals (idle time, help requests) are attention signals, not a measure of
+  learning. Paste length is only ever an observation: it never changes a student's status.
 - **Hints** come from the configured AI provider (Azure OpenAI or OpenAI) or from built-in mock hints
   when no key is set.
 
@@ -125,7 +125,10 @@ With `none (mock hints)` nothing leaves the server.
 - Each student receives their own `hint` in a per-student room. The shared session room carries only
   `quiz_available` and `session_ended`. Students never see other students' hints, alerts, quiz
   scores or dashboard state.
-- Large-paste alerts are a neutral, teacher-only signal, not an automatic cheating label.
+- Large-paste alerts (200+ characters pasted at once) are a neutral, teacher-only, dismissable
+  observation, not an automatic cheating label: they never turn a student red, never reset any
+  score, and the post-class summary has no plagiarism/integrity section (only an aggregate paste
+  count appears in the dashboard stats). The teacher decides whether to follow up.
 
 ### Consent, retention, deletion
 

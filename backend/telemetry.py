@@ -1,4 +1,4 @@
-"""Telemetry processing: support signals, confusion detection, plagiarism flags."""
+"""Telemetry processing: support signals, confusion detection, large-paste observations."""
 
 from __future__ import annotations
 from datetime import datetime
@@ -16,8 +16,6 @@ PAUSE_HINT_COOLDOWN_SECONDS = 45
 CONFUSION_SPIKE_DEDUP_SECONDS = 30
 # How long a hint/help request keeps colouring a student who has gone back to work.
 SUPPORT_RECOVERY_SECONDS = 120
-# How long a large paste keeps a student flagged for the teacher.
-PASTE_FLAG_SECONDS = 120
 
 
 def _next_hint_level(student: StudentState) -> int:
@@ -97,14 +95,19 @@ def process_telemetry(session: SessionState, student_id: str, event: TelemetryEv
     elif event.event_type == "paste":
         length = event.payload.get("length", 0)
         student.paste_events.append({"length": length, "timestamp": event.timestamp})
+        # A large paste is a neutral, teacher-only observation: it does not change
+        # status or frustration, and the teacher decides whether it means anything.
         if length >= PASTE_LENGTH_THRESHOLD:
-            actions["plagiarism_alert"] = {
+            actions["large_paste_alert"] = {
                 "student_id": student.student_id,
                 "student_name": student.name,
                 "paste_length": length,
-                "message": f"⚠️ {student.name} pasted {length} characters at once. High plagiarism risk.",
+                "message": (
+                    f"{student.name} pasted {length} characters at once. "
+                    "This is an observation, not a judgement — it may be their own notes "
+                    "or an example from the material."
+                ),
             }
-            student.frustration_score = 0  # they're not frustrated, they're cheating
 
     elif event.event_type == "help":
         msg = event.payload.get("message", "")
@@ -165,20 +168,12 @@ def _stalled_since_support(student: StudentState) -> bool:
 def _update_status(student: StudentState, now: float | None = None):
     """Traffic light for the student's *current* state, not their history.
 
-    Every branch is driven by something that is true right now — ongoing idle,
-    support the student has not worked past yet, or a recent large paste — so a
-    student who resumes work goes back to green instead of staying red for the
-    rest of the session.
+    Every branch is driven by something that is true right now — ongoing idle or
+    support the student has not worked past yet — so a student who resumes work
+    goes back to green instead of staying red for the rest of the session. Large
+    pastes never colour a student; they are only surfaced to the teacher.
     """
     now = datetime.now().timestamp() if now is None else now
-
-    recent_large_paste = any(
-        p["length"] >= PASTE_LENGTH_THRESHOLD and now - float(p.get("timestamp") or 0) <= PASTE_FLAG_SECONDS
-        for p in student.paste_events[-3:]
-    )
-    if recent_large_paste:
-        student.status = "red"
-        return
 
     stuck = _stalled_since_support(student)
     if student.idle_seconds >= IDLE_CRITICAL_SECONDS or (stuck and student.idle_seconds >= IDLE_WARNING_SECONDS):
