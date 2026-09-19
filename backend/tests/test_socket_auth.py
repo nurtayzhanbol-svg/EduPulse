@@ -111,7 +111,10 @@ async def test_teacher_join_room_requires_teacher_token(sio_spy):
     assert errors(emitted) == ["Invalid teacher token", "Invalid teacher token"]
 
     await main.join_room("sid-t", {"session_id": session.session_id, "role": "teacher", "teacher_token": teacher_token})
-    assert rooms == [("sid-t", session.session_id)]
+    assert rooms == [
+        ("sid-t", session.session_id),
+        ("sid-t", main.teacher_room(session.session_id)),
+    ]
     assert emitted[-1][0] == "dashboard_update"
     assert emitted[-1][2] == {"to": "sid-t"}
 

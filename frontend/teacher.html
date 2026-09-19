@@ -1642,6 +1642,7 @@
                 recalcStats();
                 updateMetrics();
                 renderGrid();
+                if (openStudentName) openStudentModal(openStudentName);
             });
 
             // Alerts
@@ -1966,6 +1967,8 @@
         }
 
         // ── Student Detail Modal ─────────────────────────────────────────
+        let openStudentName = null;
+
         function openStudentModal(name) {
             const s = students[name];
             if (!s) return;
@@ -2000,12 +2003,16 @@
             document.getElementById('smStatus').textContent = (s.status === 'red' ? '✕ ' : (s.status === 'yellow' ? '▲ ' : '● ')) + statusLabel;
 
             const codeEl = document.getElementById('smCode');
-            codeEl.textContent = s.current_code || '// No code written yet';
+            codeEl.textContent = s.current_code || s.current_code_preview || '// No code written yet';
 
+            openStudentName = name;
             document.getElementById('studentModal').classList.add('show');
         }
 
-        function closeStudentModal() { document.getElementById('studentModal').classList.remove('show'); }
+        function closeStudentModal() {
+            openStudentName = null;
+            document.getElementById('studentModal').classList.remove('show');
+        }
 
         document.addEventListener('keydown', (e) => {
             if (e.key === 'Escape') { closeEndModal(); closeStudentModal(); }

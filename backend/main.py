@@ -52,6 +52,21 @@ socket_app = socketio.ASGIApp(sio, other_asgi_app=app)
 # Socket sid -> (session_id, student_name) for sockets that authenticated via join_room.
 _student_sockets: dict[str, tuple[str, str]] = {}
 
+
+def teacher_room(session_id: str) -> str:
+    """Room holding only authenticated teacher sockets of a session."""
+    return f"{session_id}:teachers"
+
+
+async def broadcast_dashboard(session) -> None:
+    """Send dashboard state, including live student code, to teachers only."""
+    await sio.emit(
+        "dashboard_update",
+        session.to_dict(include_code=True),
+        room=teacher_room(session.session_id),
+    )
+
+
 # Serve frontend static files
 FRONTEND_DIR = Path(__file__).resolve().parent.parent / "frontend"
 
@@ -627,8 +642,9 @@ async def join_room(sid, data):
             await sio.emit("error", {"message": "Invalid teacher token"}, to=sid)
             return
         await sio.enter_room(sid, session_id)
+        await sio.enter_room(sid, teacher_room(session_id))
         print(f"[WS] Teacher joined session {session_id}")
-        await sio.emit("dashboard_update", session.to_dict(), to=sid)
+        await sio.emit("dashboard_update", session.to_dict(include_code=True), to=sid)
         return
 
     student = session_manager.authenticate_student(session_id, student_name, data.get("student_token"))
@@ -653,7 +669,7 @@ async def join_room(sid, data):
             ],
         }, to=sid)
     # Notify teacher dashboard
-    await sio.emit("dashboard_update", session.to_dict(), room=session_id)
+    await broadcast_dashboard(session)
 
 
 @sio.event
@@ -686,7 +702,7 @@ async def telemetry(sid, data):
 
     # Push dashboard update to all in the room
     if actions.get("dashboard_update"):
-        await sio.emit("dashboard_update", session.to_dict(), room=session_id)
+        await broadcast_dashboard(session)
 
     # Generate and send hint if needed
     if actions.get("should_hint"):

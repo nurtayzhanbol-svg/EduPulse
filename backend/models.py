@@ -77,12 +77,12 @@ class StudentState:
         self.last_keypress_at: float = datetime.now().timestamp()
         self.last_pause_hint_at: float = 0.0
 
-    def to_dict(self) -> dict:
+    def to_dict(self, include_code: bool = False) -> dict:
         code_preview = ""
         if self.current_code:
             compact = " ".join(self.current_code.strip().split())
             code_preview = compact[:140]
-        return {
+        payload = {
             "student_id": self.student_id,
             "name": self.name,
             "status": self.status,
@@ -100,6 +100,9 @@ class StudentState:
             "current_code_lines": self.current_code.count("\n") + 1 if self.current_code else 0,
             "current_code_preview": code_preview,
         }
+        if include_code:
+            payload["current_code"] = self.current_code
+        return payload
 
     def to_record(self) -> dict:
         """Full persistable state (everything except transient fields)."""
@@ -152,7 +155,7 @@ class SessionState:
         self.quiz: list[dict] = []
         self.quiz_results: dict[str, dict] = {}
 
-    def to_dict(self) -> dict:
+    def to_dict(self, include_code: bool = False) -> dict:
         return {
             "session_id": self.session_id,
             "task_description": self.task_description,
@@ -163,7 +166,8 @@ class SessionState:
             "summary": self.summary,
             "student_count": len(self.students),
             "students": {
-                name: s.to_dict() for name, s in self.students.items()
+                name: s.to_dict(include_code=include_code)
+                for name, s in self.students.items()
             },
             "alerts": self.alerts[-20:],  # last 20
         }

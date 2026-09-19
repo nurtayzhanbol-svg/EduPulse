@@ -40,8 +40,13 @@ All settings come from environment variables — see `.env.example`.
 | `OPENAI_API_KEY` | OpenAI key (non-Azure) | — |
 | `OPENAI_BASE_URL` | OpenAI-compatible endpoint (OpenRouter, Groq, Ollama, …) | OpenAI default |
 | `OPENAI_MODEL` | Model name / Azure deployment name | `gpt-5.6-luna` |
+| `OPENAI_TIMEOUT_SECONDS` | Per-request timeout | `30` |
+| `OPENAI_MAX_RETRIES` | Retries on transient API errors (429/5xx) | `2` |
+| `AI_TOKEN_BUDGET` | Token cap per process; `0` means unlimited | `0` |
 
 Without credentials the AI engine falls back to mock hints, so the app still runs end-to-end.
+The same fallback kicks in once `AI_TOKEN_BUDGET` is reached, so a runaway loop can't drain
+your API credit — every call logs its token usage and the running total.
 
 ## Project Layout
 
