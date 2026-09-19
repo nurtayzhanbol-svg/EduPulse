@@ -285,6 +285,7 @@ class SessionState:
         return {
             "session_id": self.session_id,
             "task_description": self.task_description,
+            "task_steps": list(self.task_steps),
             "task_level": self.task_level,
             "pause_threshold_seconds": self.pause_threshold_seconds,
             "has_material": bool(self.pdf_text or self.pdf_analysis),

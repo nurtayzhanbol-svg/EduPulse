@@ -638,7 +638,7 @@ async def test_marking_steps_done_drives_progress(client):
 
     for i in range(1, n):
         await client.post(f"/api/sessions/{sid}/steps/done", json={"student_id": ann, "step": i}, headers=sh(sid, "Ann"))
-    state = (await client.get(f"/api/sessions/{sid}")).json()["students"][ann]
+    state = (await client.get(f"/api/sessions/{sid}", headers=th(sid))).json()["students"][ann]
     assert state["progress"] == 100.0
     assert state["completed_steps"] == list(range(n))
 
