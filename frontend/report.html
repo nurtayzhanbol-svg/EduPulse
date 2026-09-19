@@ -93,7 +93,7 @@ body{font-family:'Source Sans 3',sans-serif;background:var(--cream);color:var(--
     <div class="kpi"><div class="kpi-label">AI Hints</div><div class="kpi-val" id="kpiHints">0</div><div class="kpi-sub">total delivered</div></div>
     <div class="kpi"><div class="kpi-label">Help Requests</div><div class="kpi-val" id="kpiHelp">0</div><div class="kpi-sub">students asked explicitly</div></div>
     <div class="kpi"><div class="kpi-label">Teacher Nudges</div><div class="kpi-val" id="kpiNudges">0</div><div class="kpi-sub">teacher interventions</div></div>
-    <div class="kpi"><div class="kpi-label">Need Follow-up</div><div class="kpi-val" id="kpiCritical">0</div><div class="kpi-sub">&ge;3 hints or flagged</div></div>
+    <div class="kpi"><div class="kpi-label">Need Follow-up</div><div class="kpi-val" id="kpiCritical">0</div><div class="kpi-sub">not green at session end</div></div>
   </div>
 
   <div class="fb-grid">
@@ -121,6 +121,11 @@ body{font-family:'Source Sans 3',sans-serif;background:var(--cream);color:var(--
       <div class="card-head"><div class="card-title">Hardest Topics</div><div style="font-size:.72rem;color:var(--text-dim)">from class signals</div></div>
       <div class="card-body" id="topicsBody"></div>
     </div>
+  </div>
+
+  <div class="card" style="margin-top:.9rem">
+    <div class="card-head"><div class="card-title">Students</div><div style="font-size:.72rem;color:var(--text-dim)">quiz evidence and support signals</div></div>
+    <div class="card-body" id="studentsBody"></div>
   </div>
 
   <div id="errorBox" role="alert" class="error" style="display:none;margin-top:1rem"></div>
@@ -151,14 +156,41 @@ function setKpis(report){
   byId('kpiHints').textContent = a.total_hints ?? 0;
   byId('kpiHelp').textContent = a.help_request_count ?? 0;
   byId('kpiNudges').textContent = a.teacher_intervention_count ?? 0;
-  byId('kpiCritical').textContent = a.critical_students ?? 0;
+  const students = Array.isArray(report.students) ? report.students : [];
+  byId('kpiCritical').textContent = students.filter((s) => s.status && s.status !== 'green').length;
+}
+
+// The report payload carries a per-student table; the buckets are derived here.
+function quizBuckets(report){
+  const students = Array.isArray(report.students) ? report.students : [];
+  const counts = { strong: 0, mixed: 0, weak: 0, no_evidence: 0 };
+  students.forEach((s) => {
+    const q = s.quiz;
+    if (!q || !q.total) { counts.no_evidence++; return; }
+    const pct = (Number(q.correct) / Number(q.total)) * 100;
+    if (pct >= 80) counts.strong++;
+    else if (pct >= 50) counts.mixed++;
+    else counts.weak++;
+  });
+  const total = students.length;
+  const pct = (n) => (total ? Math.round((n / total) * 100) : 0);
+  return {
+    counts,
+    total,
+    percentages: {
+      strong: pct(counts.strong),
+      mixed: pct(counts.mixed),
+      weak: pct(counts.weak),
+      no_evidence: pct(counts.no_evidence),
+    },
+  };
 }
 
 function setFeedbackCards(report){
-  const c = report.counts || {};
-  byId('fbMastered').textContent = c.strong ?? 0;
-  byId('fbPartial').textContent = c.mixed ?? 0;
-  byId('fbStruggling').textContent = c.weak ?? 0;
+  const c = quizBuckets(report).counts;
+  byId('fbMastered').textContent = c.strong;
+  byId('fbPartial').textContent = c.mixed;
+  byId('fbStruggling').textContent = c.weak;
 }
 
 function setInsight(report){
@@ -168,7 +200,7 @@ function setInsight(report){
 }
 
 function setBreakdown(report){
-  const p = report.percentages || {};
+  const p = quizBuckets(report).percentages;
   const rows = [
     ['Strong', p.strong || 0, 'uMastered'],
     ['Mixed', p.mixed || 0, 'uPartial'],
@@ -226,20 +258,55 @@ function setTopics(report){
   });
 }
 
+function setStudents(report){
+  const students = Array.isArray(report.students) ? report.students : [];
+  const body = byId('studentsBody');
+  body.innerHTML = '';
+  if (!students.length) { body.textContent = 'No students joined this session.'; return; }
+  const table = document.createElement('table');
+  table.style.width = '100%';
+  table.style.borderCollapse = 'collapse';
+  table.style.fontSize = '.8rem';
+  table.innerHTML = '<thead><tr>'
+    + ['Student', 'Quiz', 'Help requests', 'Hints', 'Status']
+      .map((h) => `<th style="text-align:left;padding:.35rem .5rem;color:var(--text-dim);font-weight:600">${h}</th>`)
+      .join('')
+    + '</tr></thead>';
+  const tbody = document.createElement('tbody');
+  students.forEach((s) => {
+    const q = s.quiz;
+    const quizText = (q && q.total)
+      ? `${q.correct}/${q.total} (${Math.round((Number(q.correct) / Number(q.total)) * 100)}%)`
+      : 'no evidence';
+    const tr = document.createElement('tr');
+    [s.name, quizText, s.help_requests ?? 0, s.hints ?? 0, s.status || '-'].forEach((val) => {
+      const td = document.createElement('td');
+      td.style.padding = '.35rem .5rem';
+      td.style.borderTop = '1px solid rgba(255,255,255,.07)';
+      td.textContent = String(val);
+      tr.appendChild(td);
+    });
+    tbody.appendChild(tr);
+  });
+  table.appendChild(tbody);
+  body.appendChild(table);
+}
+
 function hideReportSections() {
   document.querySelector('.kpi-row').style.display = 'none';
   document.querySelector('.fb-grid').style.display = 'none';
   document.querySelector('.grid').style.display = 'none';
+  byId('studentsBody').closest('.card').style.display = 'none';
 }
 
 function showEmptyState(report) {
   const a = report.analytics || {};
-  const c = report.counts || {};
   const noActivity = Number(a.total_students || 0) === 0
     && Number(a.total_hints || 0) === 0;
   if (!noActivity) return;
   document.querySelector('.fb-grid').innerHTML = '<div class="empty-state"><svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="var(--teal)" stroke-width="1.5"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg><h2>No activity was recorded in this session</h2><p>No students joined or no work was submitted, so there is nothing to analyse. Start a new session from the dashboard.</p><a class="btn" href="teacher.html">Back to Dashboard</a></div>';
   document.querySelector('.grid').innerHTML = '';
+  byId('studentsBody').closest('.card').style.display = 'none';
 }
 
 async function init(){
@@ -272,6 +339,7 @@ async function init(){
     setBreakdown(report);
     setTimeline(report);
     setTopics(report);
+    setStudents(report);
     showEmptyState(report);
     document.querySelector('.page').setAttribute('aria-busy','false');
   } catch (e) {
