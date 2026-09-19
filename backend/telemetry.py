@@ -14,6 +14,10 @@ CONFUSION_SPIKE_MIN_STUDENTS = 3
 CONFUSION_SPIKE_RATIO = 0.5  # 50 % of class
 PAUSE_HINT_COOLDOWN_SECONDS = 45
 CONFUSION_SPIKE_DEDUP_SECONDS = 30
+# How long a hint/help request keeps colouring a student who has gone back to work.
+SUPPORT_RECOVERY_SECONDS = 120
+# How long a large paste keeps a student flagged for the teacher.
+PASTE_FLAG_SECONDS = 120
 
 
 def _next_hint_level(student: StudentState) -> int:
@@ -104,6 +108,7 @@ def process_telemetry(session: SessionState, student_name: str, event: Telemetry
     elif event.event_type == "help":
         msg = event.payload.get("message", "")
         student.help_requests.append(msg)
+        student.last_support_at = now
         answer = event.payload.get("current_answer")
         if isinstance(answer, str) and answer.strip():
             student.current_code = answer
@@ -142,7 +147,7 @@ def process_telemetry(session: SessionState, student_name: str, event: Telemetry
                 student.last_pause_hint_at = now
 
     # ── Recalculate status ─────────────────────────────────────────
-    _update_status(student)
+    _update_status(student, now)
 
     # ── Check class-wide confusion ─────────────────────────────────
     spike = detect_confusion_spike(session)
@@ -152,29 +157,46 @@ def process_telemetry(session: SessionState, student_name: str, event: Telemetry
     return actions
 
 
-def _update_status(student: StudentState):
-    """Traffic-light status based on hint usage + sustained idle time."""
-    # Immediate red for plagiarism
-    if any(p["length"] >= PASTE_LENGTH_THRESHOLD for p in student.paste_events[-3:]):
+def refresh_status(student: StudentState, now: float | None = None):
+    """Recompute status outside the telemetry loop (e.g. once a hint is delivered)."""
+    _update_status(student, now)
+
+
+def _stalled_since_support(student: StudentState) -> bool:
+    """True when support arrived and the student has not typed anything since."""
+    return student.last_support_at > 0 and student.last_keypress_at < student.last_support_at
+
+
+def _update_status(student: StudentState, now: float | None = None):
+    """Traffic light for the student's *current* state, not their history.
+
+    Every branch is driven by something that is true right now — ongoing idle,
+    support the student has not worked past yet, or a recent large paste — so a
+    student who resumes work goes back to green instead of staying red for the
+    rest of the session.
+    """
+    now = datetime.now().timestamp() if now is None else now
+
+    recent_large_paste = any(
+        p["length"] >= PASTE_LENGTH_THRESHOLD and now - float(p.get("timestamp") or 0) <= PASTE_FLAG_SECONDS
+        for p in student.paste_events[-3:]
+    )
+    if recent_large_paste:
         student.status = "red"
         return
 
-    if student.hints_given >= 3 or student.idle_seconds >= (IDLE_CRITICAL_SECONDS * 2):
+    stuck = _stalled_since_support(student)
+    if student.idle_seconds >= IDLE_CRITICAL_SECONDS or (stuck and student.idle_seconds >= IDLE_WARNING_SECONDS):
         student.status = "red"
         return
 
-    if student.hints_given >= 2 and student.idle_seconds >= IDLE_WARNING_SECONDS:
-        student.status = "red"
-        return
-
-    if student.hints_given >= 1 or student.idle_seconds >= IDLE_CRITICAL_SECONDS:
+    if student.idle_seconds >= IDLE_WARNING_SECONDS or (
+        stuck and now - student.last_support_at <= SUPPORT_RECOVERY_SECONDS
+    ):
         student.status = "yellow"
         return
 
-    if student.frustration_score >= 0.95 and student.idle_seconds >= IDLE_CRITICAL_SECONDS:
-        student.status = "yellow"
-    else:
-        student.status = "green"
+    student.status = "green"
 
 
 def is_duplicate_confusion_spike(session: SessionState, now: float | None = None,
