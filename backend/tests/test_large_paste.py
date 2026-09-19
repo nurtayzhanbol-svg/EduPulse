@@ -162,7 +162,7 @@ async def test_public_session_endpoint_does_not_expose_paste_alerts():
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
         r = await client.get(f"/api/sessions/{session.session_id}")
         assert r.status_code == 200
-        assert r.json()["alerts"] == []
+        assert "alerts" not in r.json()
         assert "large_paste" not in r.text
         r = await client.get(f"/api/sessions/{session.session_id}",
                              headers={"Authorization": f"Bearer {teacher_token}"})
