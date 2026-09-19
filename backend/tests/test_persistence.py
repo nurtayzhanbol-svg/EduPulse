@@ -51,7 +51,7 @@ def test_session_and_students_survive_restart():
     a = loaded.students[alice.student_id]
     assert a.student_id == alice.student_id
     assert a.hints_given == 2
-    assert a.current_code == "print(1)\nprint(2)"
+    assert a.current_code == ""  # code is live-only, never persisted
     assert a.sid is None  # transient, never persisted
 
     # Tokens still work after the restart.

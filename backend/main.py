@@ -1,6 +1,7 @@
 """EduPulse — Main server: FastAPI + Socket.IO."""
 
 from __future__ import annotations
+import asyncio
 import math
 from contextlib import asynccontextmanager
 import os
@@ -12,7 +13,7 @@ from datetime import datetime
 import socketio
 import uvicorn
 from fastapi import FastAPI, HTTPException, Request, UploadFile, File, Form
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, Response
 
 from models import (
     CreateSessionRequest, CreateSessionResponse,
@@ -32,10 +33,35 @@ from pdf_engine import extract_text_from_pdf, max_upload_bytes, save_upload_to_t
 
 # ── App setup ──────────────────────────────────────────────────────
 
+RETENTION_SWEEP_SECONDS = 15 * 60
+
+
+async def _retention_sweeper() -> None:
+    """Purge ended sessions past the retention TTL while the process runs."""
+    while True:
+        await asyncio.sleep(RETENTION_SWEEP_SECONDS)
+        try:
+            session_manager.cleanup_expired_sessions()
+        except Exception as exc:  # keep sweeping; a failed pass is retried next tick
+            print(f"[Retention] cleanup failed: {exc}")
+
+
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     session_manager.cleanup_expired_sessions()
-    yield
+    sweeper = asyncio.create_task(_retention_sweeper())
+    try:
+        yield
+    finally:
+        sweeper.cancel()
+
+
+def ai_provider_name() -> str:
+    """Which third party processes student code for hints, derived from env (mirrors ai_engine)."""
+    api_key = os.environ.get("AZURE_OPENAI_API_KEY") or os.environ.get("OPENAI_API_KEY")
+    if not api_key:
+        return "none (mock hints)"
+    return "Azure OpenAI" if os.environ.get("AZURE_OPENAI_ENDPOINT") else "OpenAI"
 
 
 app = FastAPI(title="EduPulse", version="1.0.0", lifespan=lifespan)
@@ -57,6 +83,12 @@ _student_sockets: dict[str, tuple[str, str]] = {}
 def teacher_room(session_id: str) -> str:
     """Room holding only authenticated teacher sockets of a session."""
     return f"{session_id}:teachers"
+
+
+def student_room(session_id: str, student_id: str) -> str:
+    """Room holding the sockets of one student. The plain ``session_id`` room is
+    reserved for events every student should receive (quiz_available, session_ended)."""
+    return f"{session_id}:student:{student_id}"
 
 
 async def broadcast_dashboard(session) -> None:
@@ -258,6 +290,15 @@ def _build_report_payload(session) -> dict:
 
 # ── REST API ───────────────────────────────────────────────────────
 
+@app.get("/api/config")
+async def get_config():
+    """Public, non-secret runtime facts the consent notice needs to be truthful."""
+    return {
+        "ai_provider": ai_provider_name(),
+        "session_retention_hours": session_manager.retention_hours(),
+    }
+
+
 @app.post("/api/sessions", response_model=CreateSessionResponse)
 async def create_session(req: CreateSessionRequest):
     session, teacher_token = session_manager.create_session(req.task_description, req.task_level)
@@ -337,11 +378,16 @@ async def join_session(session_id: str, req: JoinSessionRequest, request: Reques
     name = req.student_name.strip()
     if not name:
         raise HTTPException(400, "Student name is required")
+    if req.consent is not True:
+        raise HTTPException(400, "Consent to the data notice is required to join")
     student, token = session_manager.join_session(session_id, name, bearer_token(request))
     if student is None:
         raise HTTPException(404, "Session not found or inactive")
     if token is None:
         raise HTTPException(409, "That name is already taken in this session. Pick another name.")
+    if student.consented_at is None:
+        student.consented_at = datetime.now().timestamp()
+        session_manager.persist_session(session_manager.get_session(session_id))
     return {
         "status": "joined",
         "student_name": student.name,
@@ -379,9 +425,25 @@ async def end_session(session_id: str, request: Request):
     session.summary = summary
     session.analytics = analytics
     session_manager.persist_session(session)
-    # Broadcast session ended
-    await sio.emit("session_ended", {"summary": summary, "analytics": analytics}, room=session_id)
+    # Broadcast session ended to students (session room) and teacher tabs (teacher room)
+    payload = {"summary": summary, "analytics": analytics}
+    await sio.emit("session_ended", payload, room=session_id)
+    await sio.emit("session_ended", payload, room=teacher_room(session_id))
     return EndSessionResponse(summary=summary, analytics=analytics)
+
+
+@app.delete("/api/sessions/{session_id}", status_code=204)
+async def delete_session(session_id: str, request: Request):
+    """Erase a session and all of its student data (teacher only)."""
+    session = session_manager.get_session(session_id)
+    if session is None:
+        raise HTTPException(404, "Session not found")
+    require_teacher(request, session)
+    payload = {"summary": "Session data deleted by the teacher.", "analytics": {}}
+    await sio.emit("session_ended", payload, room=session_id)
+    await sio.emit("session_ended", payload, room=teacher_room(session_id))
+    session_manager.delete_session(session_id)
+    return Response(status_code=204)
 
 
 @app.get("/api/sessions/{session_id}/report")
@@ -615,7 +677,6 @@ async def join_room(sid, data):
         if not token_matches(data.get("teacher_token"), session.teacher_token_hash):
             await sio.emit("error", {"message": "Invalid teacher token"}, to=sid)
             return
-        await sio.enter_room(sid, session_id)
         await sio.enter_room(sid, teacher_room(session_id))
         print(f"[WS] Teacher joined session {session_id}")
         await sio.emit("dashboard_update", session.to_dict(include_code=True), to=sid)
@@ -629,6 +690,7 @@ async def join_room(sid, data):
     _student_sockets[sid] = (session_id, student.student_id)
     student.sid = sid
     await sio.enter_room(sid, session_id)
+    await sio.enter_room(sid, student_room(session_id, student.student_id))
     print(f"[WS] Student '{student.name}' joined session {session_id}")
     # If quiz already exists, send it to this newly-joined student
     if session.quiz:
@@ -699,19 +761,18 @@ async def telemetry(sid, data):
                 class_material=material_context,
                 force_level=actions.get("force_hint_level"),
             )
-            target_sid = student.sid or sid
             await sio.emit("hint", {
                 "student_id": student_id,
                 "hint": hint_text,
                 "level": student.hint_level,
-            }, to=target_sid)
+            }, room=student_room(session_id, student.student_id))
             # Also notify teacher
             await sio.emit("hint_given", {
                 "student_id": student_id,
                 "student_name": student.name,
                 "hint": hint_text,
                 "level": student.hint_level,
-            }, room=session_id)
+            }, room=teacher_room(session_id))
             refresh_status(student)
             session_manager.persist_session(session)
             await broadcast_dashboard(session)
@@ -722,7 +783,7 @@ async def telemetry(sid, data):
         alert["type"] = "plagiarism"
         alert.setdefault("timestamp", datetime.now().timestamp())
         session.alerts.append(alert)
-        await sio.emit("alert", alert, room=session_id)
+        await sio.emit("alert", alert, room=teacher_room(session_id))
 
     # Confusion spike alert
     if actions.get("confusion_spike"):
@@ -730,7 +791,7 @@ async def telemetry(sid, data):
         # Avoid duplicate alerts within CONFUSION_SPIKE_DEDUP_SECONDS of the last one.
         if not is_duplicate_confusion_spike(session, now=spike["timestamp"]):
             session.alerts.append(spike)
-            await sio.emit("alert", spike, room=session_id)
+            await sio.emit("alert", spike, room=teacher_room(session_id))
 
 
 # ── Entry point ────────────────────────────────────────────────────

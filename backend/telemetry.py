@@ -41,10 +41,14 @@ def process_telemetry(session: SessionState, student_id: str, event: TelemetryEv
     actions: dict = {"dashboard_update": True}
     now = datetime.now().timestamp()
     student.last_activity = now
-    student.events.append({"type": event.event_type, "ts": event.timestamp, **event.payload})
-    current_code = event.payload.get("current_code")
-    if isinstance(current_code, str):
-        student.current_code = current_code
+    student.log_event(event.event_type, event.timestamp)
+    # Code is accepted only from an explicit help request or a code_update; any
+    # other event type (keystroke, idle, ...) must not carry editor contents.
+    if event.event_type == "help":
+        for key in ("current_code", "current_answer"):
+            code = event.payload.get(key)
+            if isinstance(code, str) and code.strip():
+                student.set_code(code)
     has_started_work = bool(student.current_code.strip()) or student.total_keystrokes > 0
 
     # ── Per-event-type processing ──────────────────────────────────
@@ -92,11 +96,7 @@ def process_telemetry(session: SessionState, student_id: str, event: TelemetryEv
 
     elif event.event_type == "paste":
         length = event.payload.get("length", 0)
-        student.paste_events.append({
-            "length": length,
-            "timestamp": event.timestamp,
-            "preview": event.payload.get("content_preview", "")[:100],
-        })
+        student.paste_events.append({"length": length, "timestamp": event.timestamp})
         if length >= PASTE_LENGTH_THRESHOLD:
             actions["plagiarism_alert"] = {
                 "student_id": student.student_id,
@@ -110,16 +110,14 @@ def process_telemetry(session: SessionState, student_id: str, event: TelemetryEv
         msg = event.payload.get("message", "")
         student.help_requests.append(msg)
         student.last_support_at = now
-        answer = event.payload.get("current_answer")
-        if isinstance(answer, str) and answer.strip():
-            student.current_code = answer
         student.frustration_score = min(1.0, student.frustration_score + 0.25)
         actions["should_hint"] = True
         actions["hint_reason"] = "help_request"
         actions["help_message"] = msg
 
     elif event.event_type == "code_update":
-        student.current_code = event.payload.get("code", "")
+        code = event.payload.get("code", "")
+        student.set_code(code if isinstance(code, str) else "")
         lines = student.current_code.count("\n") + 1
         student.progress = min(100.0, lines * 5.0)  # rough heuristic
 
@@ -132,10 +130,6 @@ def process_telemetry(session: SessionState, student_id: str, event: TelemetryEv
             student.idle_seconds = 0
             secs = 0
             paused_for = 0
-
-        answer = event.payload.get("current_answer")
-        if isinstance(answer, str) and answer.strip():
-            student.current_code = answer
 
         pause_threshold = _pause_interval_for_next_hint(session, student)
         if has_started_work and student.idle_seconds >= pause_threshold:

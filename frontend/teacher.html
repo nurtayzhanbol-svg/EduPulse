@@ -1213,6 +1213,7 @@
                 <div class="live-chip" id="navConn" style="display:none"><span class="conn-state-icon">●</span><span id="navConnText">Connected · Live</span></div>
                 <button class="btn btn-red" id="endBtn" style="display:none" onclick="openEndModal()">End
                     Session</button>
+                <button class="btn btn-ghost" id="deleteBtn" style="display:none" onclick="deleteSessionData()">Delete session data</button>
             </div>
         </div>
     </nav>
@@ -1739,6 +1740,7 @@
             document.getElementById('liveChip').style.display = 'flex';
             document.getElementById('navConn').style.display = 'flex';
             document.getElementById('endBtn').style.display = 'flex';
+            document.getElementById('deleteBtn').style.display = 'flex';
 
             // Show join link
             const joinUrl = window.location.origin + '/student.html?session=' + sessionId;
@@ -2039,6 +2041,14 @@
         <div class="report-stat"><div class="report-val">${totalStudents}</div><div class="report-lbl">Students</div></div>
         <div class="report-stat"><div class="report-val" style="color:var(--teal)">${totalHints}</div><div class="report-lbl">AI Hints Sent</div></div>
         <div class="report-stat"><div class="report-val" style="color:var(--red)">${helpRequests}</div><div class="report-lbl">Help requests</div></div>`;
+        }
+
+        // ── Delete session data (DELETE /api/sessions/{id}) ───────────
+        async function deleteSessionData() {
+            if (!sessionId || !confirm('Permanently delete this session and all student data? Students will be disconnected.')) return;
+            const res = await fetch(`${API}/api/sessions/${sessionId}`, { method: 'DELETE', headers: authHeaders() });
+            if (res.status === 204) { forgetTeacherSession(); location.reload(); }
+            else alert('Could not delete session: ' + await parseApiError(res));
         }
 
         // ── End Session ───────────────────────────────────────────────

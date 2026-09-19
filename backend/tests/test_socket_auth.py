@@ -67,7 +67,10 @@ async def test_student_join_room_with_valid_token_enters_room_and_binds_sid(sio_
         "session_id": session.session_id, "role": "student",
         "student_id": sid_of(session, "Alice"), "student_token": alice_token,
     })
-    assert rooms == [("sid-a", session.session_id)]
+    assert rooms == [
+        ("sid-a", session.session_id),
+        ("sid-a", main.student_room(session.session_id, sid_of(session, "Alice"))),
+    ]
     assert main._student_sockets["sid-a"] == (session.session_id, sid_of(session, "Alice"))
     assert session.student_by_name("Alice").sid == "sid-a"
     assert errors(emitted) == []
@@ -115,10 +118,7 @@ async def test_teacher_join_room_requires_teacher_token(sio_spy):
     assert errors(emitted) == ["Invalid teacher token", "Invalid teacher token"]
 
     await main.join_room("sid-t", {"session_id": session.session_id, "role": "teacher", "teacher_token": teacher_token})
-    assert rooms == [
-        ("sid-t", session.session_id),
-        ("sid-t", main.teacher_room(session.session_id)),
-    ]
+    assert rooms == [("sid-t", main.teacher_room(session.session_id))]
     assert emitted[-1][0] == "dashboard_update"
     assert emitted[-1][2] == {"to": "sid-t"}
 

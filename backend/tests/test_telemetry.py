@@ -37,7 +37,7 @@ def test_event_is_logged_and_activity_updated(session, student):
     actions = process_telemetry(session, student_id(session, "student0"), ev)
     assert actions["dashboard_update"] is True
     assert student.last_activity >= before
-    assert student.events == [{"type": "keystroke", "ts": ev.timestamp, "count": 2, "extra": "x"}]
+    assert student.events == [{"type": "keystroke", "ts": ev.timestamp}]
 
 
 def test_unknown_event_type_only_updates_dashboard(session, student):
@@ -47,9 +47,9 @@ def test_unknown_event_type_only_updates_dashboard(session, student):
     assert student.support_signals == 0
 
 
-def test_current_code_in_payload_is_stored_for_any_event(session, student):
+def test_current_code_in_payload_is_ignored_for_non_help_events(session, student):
     process_telemetry(session, student_id(session, "student0"), make_event("mystery", current_code="x = 1"))
-    assert student.current_code == "x = 1"
+    assert student.current_code == ""
 
 
 def test_non_string_current_code_is_ignored(session, student):
@@ -292,7 +292,7 @@ def test_small_paste_is_recorded_without_alert(session, student):
     )
     assert "plagiarism_alert" not in actions
     assert student.paste_events[0]["length"] == PASTE_LENGTH_THRESHOLD - 1
-    assert student.paste_events[0]["preview"] == "abc"
+    assert set(student.paste_events[0]) == {"length", "timestamp"}
     assert student.status == "green"
 
 
@@ -309,7 +309,7 @@ def test_large_paste_raises_alert_red_status_and_zero_frustration(session, stude
     assert "student0" in alert["message"]
     assert student.frustration_score == 0
     assert student.status == "red"
-    assert student.paste_events[0]["preview"] == "z" * 100
+    assert "preview" not in student.paste_events[0]
 
 
 def test_large_paste_red_status_expires_after_three_more_pastes(session, student):
@@ -411,9 +411,9 @@ def test_pause_wait_respects_cooldown(session, student):
     assert student.frustration_score == pytest.approx(0.16)
 
 
-def test_pause_wait_stores_current_answer(session, student):
+def test_pause_wait_does_not_accept_code(session, student):
     process_telemetry(session, student_id(session, "student0"), make_event("pause_wait", idle_seconds=0, current_answer="x=1"))
-    assert student.current_code == "x=1"
+    assert student.current_code == ""
 
 
 def test_pause_wait_handles_none_idle_seconds(session, student):

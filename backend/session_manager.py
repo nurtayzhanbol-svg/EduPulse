@@ -22,7 +22,22 @@ from models import SessionState, StudentState
 
 
 DEFAULT_DB_PATH = "./edupulse.db"
-SESSION_RETENTION_SECONDS = 24 * 60 * 60
+DEFAULT_RETENTION_HOURS = 24.0
+
+
+def retention_hours() -> float:
+    """How long an ended session is kept, from ``SESSION_RETENTION_HOURS`` (default 24)."""
+    raw = os.environ.get("SESSION_RETENTION_HOURS", "")
+    try:
+        hours = float(raw) if raw.strip() else DEFAULT_RETENTION_HOURS
+    except ValueError:
+        hours = DEFAULT_RETENTION_HOURS
+    return hours if hours > 0 else DEFAULT_RETENTION_HOURS
+
+
+def retention_seconds() -> float:
+    return retention_hours() * 60 * 60
+
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS sessions (
@@ -148,19 +163,9 @@ def persist_session(session: SessionState) -> None:
             raise
 
 
-def cleanup_expired_sessions(now: Optional[float] = None,
-                             retention_seconds: float = SESSION_RETENTION_SECONDS) -> int:
-    """Delete sessions that ended more than ``retention_seconds`` ago. Returns rows removed."""
-    cutoff = (now if now is not None else time.time()) - retention_seconds
+def _delete_rows(ids: list[str]) -> None:
     conn = _connect()
     with _lock:
-        rows = conn.execute(
-            "SELECT session_id FROM sessions WHERE active = 0 AND ended_at IS NOT NULL AND ended_at < ?",
-            (cutoff,),
-        ).fetchall()
-        ids = [r[0] for r in rows]
-        if not ids:
-            return 0
         conn.execute("BEGIN")
         try:
             for sid in ids:
@@ -171,7 +176,33 @@ def cleanup_expired_sessions(now: Optional[float] = None,
         except Exception:
             conn.execute("ROLLBACK")
             raise
+
+
+def cleanup_expired_sessions(now: Optional[float] = None,
+                             ttl_seconds: Optional[float] = None) -> int:
+    """Delete sessions that ended more than ``ttl_seconds`` (default: configured TTL) ago."""
+    if ttl_seconds is None:
+        ttl_seconds = retention_seconds()
+    cutoff = (now if now is not None else time.time()) - ttl_seconds
+    conn = _connect()
+    with _lock:
+        rows = conn.execute(
+            "SELECT session_id FROM sessions WHERE active = 0 AND ended_at IS NOT NULL AND ended_at < ?",
+            (cutoff,),
+        ).fetchall()
+        ids = [r[0] for r in rows]
+        if not ids:
+            return 0
+        _delete_rows(ids)
     return len(ids)
+
+
+def delete_session(session_id: str) -> bool:
+    """Remove a session and its students from SQLite and the cache. True if it existed."""
+    if get_session(session_id) is None:
+        return False
+    _delete_rows([session_id])
+    return True
 
 
 # ── Public API ─────────────────────────────────────────────────────
