@@ -1,7 +1,6 @@
 """EduPulse — Main server: FastAPI + Socket.IO."""
 
 from __future__ import annotations
-import asyncio
 import math
 import os
 import re
@@ -12,7 +11,6 @@ from datetime import datetime
 import socketio
 import uvicorn
 from fastapi import FastAPI, HTTPException, UploadFile, File, Form
-from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 
 from models import (
@@ -26,7 +24,6 @@ from ai_engine import (
     generate_quiz,
     analyze_pdf_content,
     generate_task_description_from_pdf,
-    is_ai_available,
 )
 from pdf_engine import extract_text_from_pdf
 
@@ -529,11 +526,6 @@ async def serve_html(filename: str):
     if filepath.exists():
         return FileResponse(filepath)
     raise HTTPException(404, "Page not found")
-
-
-# Mount static dirs
-app.mount("/css", StaticFiles(directory=str(FRONTEND_DIR / "css")), name="css")
-app.mount("/js", StaticFiles(directory=str(FRONTEND_DIR / "js")), name="js")
 
 
 # ── Socket.IO Events ──────────────────────────────────────────────
