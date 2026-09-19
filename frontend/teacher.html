@@ -1189,6 +1189,7 @@
         .join-link-inner { display:flex; align-items:center; gap:12px; flex-wrap:wrap; }
         .join-link-inner code { flex:1; min-width:0; overflow-wrap:anywhere; }
         .alert-close { font: inherit; }
+        .alert-confirm { margin-top: 6px; padding: 3px 10px; font-size: 12px; }
         @media (max-width: 768px) {
             .main { padding: 72px 1rem 2rem; }
             .nav { padding: 0 1rem; }
@@ -1828,7 +1829,7 @@
             // Alerts
             socket.on('alert', (data) => {
                 const type = data.type === 'large_paste' ? 'note' : 'warn';
-                pushAlert(type, data.student_name || 'System', data.message || '');
+                pushAlert(type, data.student_name || 'System', data.message || '', data.type === 'large_paste' ? data : null);
                 pushFeed(type === 'note' ? 'info' : type, `<strong>${data.student_name || 'System'}</strong>: ${data.message || ''}`);
             });
 
@@ -1987,9 +1988,21 @@
             warn: `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#c97010" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16" stroke-width="3"/></svg>`,
         };
 
-        function pushAlert(type, name, text) {
+        async function confirmPasteSignal(id, data) {
+            const btn = document.getElementById(id + '-confirm');
+            if (btn) btn.disabled = true;
+            const res = await fetch(`${API}/api/sessions/${sessionId}/paste-signals/confirm`, {
+                method: 'POST',
+                headers: authHeaders({ 'Content-Type': 'application/json' }),
+                body: JSON.stringify({ student_id: data.student_id, paste_length: data.paste_length || 0, timestamp: data.timestamp || 0 }),
+            });
+            if (btn) btn.textContent = res.ok ? 'Confirmed for report' : 'Could not confirm';
+            if (!res.ok && btn) btn.disabled = false;
+        }
+
+        function pushAlert(type, name, text, pasteData = null) {
             const area = document.getElementById('alertsArea');
-            const id = 'a' + Date.now();
+            const id = 'a' + Date.now() + Math.floor(Math.random() * 1000);
             const cls = type === 'flag' ? 'alert-flag' : type === 'note' ? 'alert-note' : 'alert-warn';
             const icon = type === 'flag' || type === 'note'
                 ? `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/></svg>`
@@ -1999,9 +2012,13 @@
             area.insertAdjacentHTML('afterbegin', `
         <div class="alert ${cls}" id="${id}">
           <span class="alert-icon">${icon}</span>
-          <div class="alert-body"><div class="alert-title ${tcls}">${title}</div><div class="alert-detail">${text}</div></div>
+          <div class="alert-body"><div class="alert-title ${tcls}">${title}</div><div class="alert-detail">${text}</div>${pasteData ? `<button type="button" class="btn btn-ghost alert-confirm" id="${id}-confirm">Confirm for report</button>` : ''}</div>
           <button class="alert-close" aria-label="Dismiss alert" onclick="document.getElementById('${id}').remove()">×</button>
         </div>`);
+            if (pasteData) {
+                const btn = document.getElementById(id + '-confirm');
+                if (btn) btn.addEventListener('click', () => confirmPasteSignal(id, pasteData));
+            }
             // Keep max 10
             while (area.children.length > 10) area.removeChild(area.lastChild);
         }
@@ -2077,7 +2094,9 @@
                 ? null : Math.round(Number(analytics.quiz_avg_correct_pct));
             const totalHints = Number(analytics.total_hints || 0);
             const helpRequests = Number(analytics.help_request_count || 0);
+            const confirmedPastes = Number(analytics.total_large_pastes || 0);
             document.getElementById('reportGrid').innerHTML = `
+        <div class="report-stat"><div class="report-val">${confirmedPastes}</div><div class="report-lbl">Confirmed large pastes</div></div>
         <div class="report-stat"><div class="report-val" style="color:var(--teal);font-size:${quizAccuracy === null ? '.9rem' : ''}">${quizAccuracy === null ? 'No evidence yet' : quizAccuracy + '%'}</div><div class="report-lbl">Quiz Accuracy</div></div>
         <div class="report-stat"><div class="report-val">${totalStudents}</div><div class="report-lbl">Students</div></div>
         <div class="report-stat"><div class="report-val" style="color:var(--teal)">${totalHints}</div><div class="report-lbl">AI Hints Sent</div></div>

@@ -18,11 +18,11 @@ from fastapi.responses import FileResponse, JSONResponse, Response
 from models import (
     CreateSessionRequest, CreateSessionResponse,
     JoinSessionRequest, EndSessionResponse, TelemetryEvent,
-    UpdateTaskRequest, LaunchSessionRequest, NudgeRequest,
+    UpdateTaskRequest, LaunchSessionRequest, NudgeRequest, ConfirmPasteSignalRequest,
 )
 import session_manager
 from auth import bearer_token, require_student, require_teacher, token_matches
-from telemetry import is_duplicate_confusion_spike, process_telemetry, refresh_status
+from telemetry import process_telemetry, refresh_status
 from ai_engine import (
     gate_hint,
     generate_hint,
@@ -168,9 +168,8 @@ def _build_session_analytics(session) -> dict:
         if s.quiz_total
     ]
     quiz_avg_correct_pct = round(sum(quiz_pcts) / len(quiz_pcts), 1) if quiz_pcts else None
-    total_large_pastes = sum(
-        1 for s in students for p in s.paste_events if p.get("length", 0) >= 200
-    )
+    # Only paste signals the teacher explicitly confirmed count towards the report.
+    total_large_pastes = len(getattr(session, "confirmed_paste_signals", []) or [])
     students_with_help = sum(1 for s in students if s.help_requests)
     teacher_intervention_count = sum(len(s.teacher_nudges) for s in students)
     bars = [
@@ -482,6 +481,22 @@ async def nudge_student(session_id: str, student_id: str, req: NudgeRequest, req
                    room=student_room(session_id, student_id))
     await broadcast_dashboard(session)
     return {"student_id": student_id, "message": message, "teacher_nudges": len(student.teacher_nudges)}
+
+
+@app.post("/api/sessions/{session_id}/paste-signals/confirm")
+async def confirm_paste_signal(session_id: str, req: ConfirmPasteSignalRequest, request: Request):
+    """Teacher confirms a large-paste observation so it is counted in the report."""
+    session = session_manager.get_session(session_id)
+    if session is None:
+        raise HTTPException(404, "Session not found")
+    require_teacher(request, session)
+    if req.student_id not in session.students:
+        raise HTTPException(404, "Student not found")
+    entry = {"student_id": req.student_id, "paste_length": req.paste_length, "timestamp": req.timestamp}
+    if entry not in session.confirmed_paste_signals:
+        session.confirmed_paste_signals.append(entry)
+        session_manager.persist_session(session)
+    return {"confirmed_count": len(session.confirmed_paste_signals)}
 
 
 @app.post("/api/sessions/{session_id}/end", response_model=EndSessionResponse)
@@ -905,13 +920,11 @@ async def telemetry(sid, data):
         session.alerts.append(alert)
         await sio.emit("alert", alert, room=teacher_room(session_id))
 
-    # Confusion spike alert
+    # Confusion spike: process_telemetry only returns it when a new episode starts.
     if actions.get("confusion_spike"):
         spike = actions["confusion_spike"]
-        # Avoid duplicate alerts within CONFUSION_SPIKE_DEDUP_SECONDS of the last one.
-        if not is_duplicate_confusion_spike(session, now=spike["timestamp"]):
-            session.alerts.append(spike)
-            await sio.emit("alert", spike, room=teacher_room(session_id))
+        session.alerts.append(spike)
+        await sio.emit("alert", spike, room=teacher_room(session_id))
 
 
 # ── Entry point ────────────────────────────────────────────────────

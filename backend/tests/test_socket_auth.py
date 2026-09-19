@@ -9,6 +9,7 @@ from __future__ import annotations
 import pytest
 
 import main
+import telemetry
 import session_manager
 
 pytestmark = pytest.mark.asyncio
@@ -213,7 +214,7 @@ def _spike_alerts(emitted):
     return [d for e, d, _ in emitted if e == "alert" and d.get("type") == "confusion_spike"]
 
 
-async def test_confusion_spike_alert_is_deduped_within_30s_and_refires_after(sio_spy, monkeypatch):
+async def test_confusion_spike_alert_fires_once_per_episode(sio_spy, monkeypatch):
     emitted, _ = sio_spy
     session, _, alice_token, _ = setup_session()
     for name in ("Carol", "Dave"):
@@ -228,15 +229,14 @@ async def test_confusion_spike_alert_is_deduped_within_30s_and_refires_after(sio
     def send():
         return main.telemetry("sid-a", keystroke(session.session_id, sid_of(session, "Alice"), alice_token, count=1))
 
-    # Every keystroke re-marks the other three as yellow-but-unchanged, so a spike is
-    # detected each time; only the first may alert.
+    # The other three stay yellow, so the episode is detected on every event; only
+    # its start may alert.
     await send()
     await send()
     assert len(_spike_alerts(emitted)) == 1
     assert len([a for a in session.alerts if a["type"] == "confusion_spike"]) == 1
-    first_ts = session.alerts[0]["timestamp"]
 
-    # Still inside the window: a plagiarism alert in between must not reset it.
+    # A large-paste alert in between does not restart the episode.
     await main.telemetry("sid-a", {
         "session_id": session.session_id, "student_id": sid_of(session, "Alice"), "student_token": alice_token,
         "event": {"event_type": "paste", "payload": {"length": 500}},
@@ -244,8 +244,14 @@ async def test_confusion_spike_alert_is_deduped_within_30s_and_refires_after(sio
     await send()
     assert len(_spike_alerts(emitted)) == 1
 
-    # Past the window: fires again.
-    session.alerts[0]["timestamp"] = first_ts - 31
+    # The episode ends when the class recovers, and a fresh one alerts again.
+    for name in ("Bob", "Carol", "Dave"):
+        session.student_by_name(name).status = "green"
+    await send()
+    assert session.confusion_episode_active is False
+    session.confusion_episode_ended_at -= telemetry.CONFUSION_SPIKE_QUIET_SECONDS + 1
+    for name in ("Bob", "Carol", "Dave"):
+        session.student_by_name(name).status = "yellow"
     await send()
     assert len(_spike_alerts(emitted)) == 2
     assert len([a for a in session.alerts if a["type"] == "confusion_spike"]) == 2

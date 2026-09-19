@@ -14,7 +14,7 @@ _temperature_supported = True
 _json_schema_supported = True
 
 # ── Spend guardrails ──────────────────────────────────────────────
-DEFAULT_TIMEOUT_SECONDS = 30.0
+DEFAULT_TIMEOUT_SECONDS = 20.0
 DEFAULT_MAX_RETRIES = 2
 DEFAULT_BREAKER_FAILURES = 3
 DEFAULT_BREAKER_COOLDOWN_SECONDS = 120.0
