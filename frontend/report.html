@@ -149,7 +149,7 @@ function setKpis(report){
     : `${a.quiz_submitted_count ?? 0}/${a.total_students ?? 0} submitted`;
   byId('kpiHints').textContent = a.total_hints ?? 0;
   byId('kpiHelp').textContent = a.help_request_count ?? 0;
-  byId('kpiCritical').textContent = a.help_request_count ?? 0;
+  byId('kpiCritical').textContent = a.critical_students ?? 0;
 }
 
 function setFeedbackCards(report){
