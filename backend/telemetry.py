@@ -32,9 +32,9 @@ def _pause_interval_for_next_hint(session: SessionState, student: StudentState) 
     return int(base * multiplier)
 
 
-def process_telemetry(session: SessionState, student_name: str, event: TelemetryEvent) -> dict:
+def process_telemetry(session: SessionState, student_id: str, event: TelemetryEvent) -> dict:
     """Process a single telemetry event and return actions to take."""
-    student = session.students.get(student_name)
+    student = session.students.get(student_id)
     if student is None:
         return {}
 
@@ -99,9 +99,10 @@ def process_telemetry(session: SessionState, student_name: str, event: Telemetry
         })
         if length >= PASTE_LENGTH_THRESHOLD:
             actions["plagiarism_alert"] = {
-                "student_name": student_name,
+                "student_id": student.student_id,
+                "student_name": student.name,
                 "paste_length": length,
-                "message": f"⚠️ {student_name} pasted {length} characters at once. High plagiarism risk.",
+                "message": f"⚠️ {student.name} pasted {length} characters at once. High plagiarism risk.",
             }
             student.frustration_score = 0  # they're not frustrated, they're cheating
 
@@ -218,10 +219,7 @@ def detect_confusion_spike(session: SessionState) -> dict | None:
     if len(session.students) < 2:
         return None
 
-    struggling = [
-        name for name, s in session.students.items()
-        if s.status in ("yellow", "red")
-    ]
+    struggling = [s.name for s in session.students.values() if s.status in ("yellow", "red")]
 
     threshold = max(CONFUSION_SPIKE_MIN_STUDENTS,
                     int(len(session.students) * CONFUSION_SPIKE_RATIO))

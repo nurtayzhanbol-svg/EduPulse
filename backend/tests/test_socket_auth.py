@@ -42,10 +42,14 @@ def setup_session():
     return session, teacher_token, alice_token, bob_token
 
 
-def keystroke(session_id, name, token=None, **payload):
+def sid_of(session, name):
+    return session.student_by_name(name).student_id
+
+
+def keystroke(session_id, student_id, token=None, **payload):
     data = {
         "session_id": session_id,
-        "student_name": name,
+        "student_id": student_id,
         "event": {"event_type": "keystroke", "payload": payload or {"count": 1}},
     }
     if token is not None:
@@ -61,11 +65,11 @@ async def test_student_join_room_with_valid_token_enters_room_and_binds_sid(sio_
     session, _, alice_token, _ = setup_session()
     await main.join_room("sid-a", {
         "session_id": session.session_id, "role": "student",
-        "student_name": "Alice", "student_token": alice_token,
+        "student_id": sid_of(session, "Alice"), "student_token": alice_token,
     })
     assert rooms == [("sid-a", session.session_id)]
-    assert main._student_sockets["sid-a"] == (session.session_id, "Alice")
-    assert session.students["Alice"].sid == "sid-a"
+    assert main._student_sockets["sid-a"] == (session.session_id, sid_of(session, "Alice"))
+    assert session.student_by_name("Alice").sid == "sid-a"
     assert errors(emitted) == []
     assert [e for e, _, _ in emitted] == ["dashboard_update"]
 
@@ -73,7 +77,7 @@ async def test_student_join_room_with_valid_token_enters_room_and_binds_sid(sio_
 async def test_student_join_room_without_token_is_rejected(sio_spy):
     emitted, rooms = sio_spy
     session, *_ = setup_session()
-    await main.join_room("sid-a", {"session_id": session.session_id, "role": "student", "student_name": "Alice"})
+    await main.join_room("sid-a", {"session_id": session.session_id, "role": "student", "student_id": sid_of(session, "Alice")})
     assert rooms == []
     assert "sid-a" not in main._student_sockets
     assert errors(emitted) == ["Invalid student token"]
@@ -84,7 +88,7 @@ async def test_student_join_room_with_another_students_token_is_rejected(sio_spy
     session, _, _, bob_token = setup_session()
     await main.join_room("sid-a", {
         "session_id": session.session_id, "role": "student",
-        "student_name": "Alice", "student_token": bob_token,
+        "student_id": sid_of(session, "Alice"), "student_token": bob_token,
     })
     assert rooms == []
     assert errors(emitted) == ["Invalid student token"]
@@ -95,10 +99,10 @@ async def test_join_room_cannot_invent_a_student(sio_spy):
     session, _, alice_token, _ = setup_session()
     await main.join_room("sid-x", {
         "session_id": session.session_id, "role": "student",
-        "student_name": "Mallory", "student_token": alice_token,
+        "student_id": "mallory-does-not-exist", "student_token": alice_token,
     })
     assert rooms == []
-    assert "Mallory" not in session.students
+    assert session.student_by_name("Mallory") is None
 
 
 async def test_teacher_join_room_requires_teacher_token(sio_spy):
@@ -121,7 +125,7 @@ async def test_teacher_join_room_requires_teacher_token(sio_spy):
 
 async def test_join_room_unknown_session(sio_spy):
     emitted, rooms = sio_spy
-    await main.join_room("sid-a", {"session_id": "nope", "role": "student", "student_name": "A", "student_token": "x"})
+    await main.join_room("sid-a", {"session_id": "nope", "role": "student", "student_id": "whoever", "student_token": "x"})
     assert rooms == []
     assert errors(emitted) == ["Session not found"]
 
@@ -134,34 +138,34 @@ async def test_telemetry_from_bound_socket_is_processed(sio_spy):
     session, _, alice_token, _ = setup_session()
     await main.join_room("sid-a", {
         "session_id": session.session_id, "role": "student",
-        "student_name": "Alice", "student_token": alice_token,
+        "student_id": sid_of(session, "Alice"), "student_token": alice_token,
     })
-    await main.telemetry("sid-a", keystroke(session.session_id, "Alice", alice_token, count=3))
-    assert session.students["Alice"].total_keystrokes == 3
+    await main.telemetry("sid-a", keystroke(session.session_id, sid_of(session, "Alice"), alice_token, count=3))
+    assert session.student_by_name("Alice").total_keystrokes == 3
     assert errors(emitted) == []
 
 
 async def test_telemetry_without_join_room_is_rejected(sio_spy):
     emitted, _ = sio_spy
     session, _, alice_token, _ = setup_session()
-    await main.telemetry("sid-unbound", keystroke(session.session_id, "Alice", alice_token, count=3))
-    assert session.students["Alice"].total_keystrokes == 0
+    await main.telemetry("sid-unbound", keystroke(session.session_id, sid_of(session, "Alice"), alice_token, count=3))
+    assert session.student_by_name("Alice").total_keystrokes == 0
     assert errors(emitted) == ["Unauthorized telemetry"]
 
 
-async def test_telemetry_with_mismatched_student_name_is_rejected(sio_spy):
+async def test_telemetry_with_mismatched_student_id_is_rejected(sio_spy):
     emitted, _ = sio_spy
     session, _, alice_token, bob_token = setup_session()
     await main.join_room("sid-b", {
         "session_id": session.session_id, "role": "student",
-        "student_name": "Bob", "student_token": bob_token,
+        "student_id": sid_of(session, "Bob"), "student_token": bob_token,
     })
     # Bob's socket claims to be Alice (with Bob's own token).
-    await main.telemetry("sid-b", keystroke(session.session_id, "Alice", bob_token, count=5))
+    await main.telemetry("sid-b", keystroke(session.session_id, sid_of(session, "Alice"), bob_token, count=5))
     # ...and even with Alice's stolen token, the socket is bound to Bob.
-    await main.telemetry("sid-b", keystroke(session.session_id, "Alice", alice_token, count=5))
-    assert session.students["Alice"].total_keystrokes == 0
-    assert session.students["Bob"].total_keystrokes == 0
+    await main.telemetry("sid-b", keystroke(session.session_id, sid_of(session, "Alice"), alice_token, count=5))
+    assert session.student_by_name("Alice").total_keystrokes == 0
+    assert session.student_by_name("Bob").total_keystrokes == 0
     assert errors(emitted) == ["Unauthorized telemetry", "Unauthorized telemetry"]
 
 
@@ -170,11 +174,11 @@ async def test_telemetry_with_wrong_token_on_bound_socket_is_rejected(sio_spy):
     session, _, alice_token, bob_token = setup_session()
     await main.join_room("sid-a", {
         "session_id": session.session_id, "role": "student",
-        "student_name": "Alice", "student_token": alice_token,
+        "student_id": sid_of(session, "Alice"), "student_token": alice_token,
     })
-    await main.telemetry("sid-a", keystroke(session.session_id, "Alice", bob_token, count=2))
-    await main.telemetry("sid-a", keystroke(session.session_id, "Alice", count=2))
-    assert session.students["Alice"].total_keystrokes == 0
+    await main.telemetry("sid-a", keystroke(session.session_id, sid_of(session, "Alice"), bob_token, count=2))
+    await main.telemetry("sid-a", keystroke(session.session_id, sid_of(session, "Alice"), count=2))
+    assert session.student_by_name("Alice").total_keystrokes == 0
     assert errors(emitted) == ["Invalid student token", "Invalid student token"]
 
 
@@ -184,10 +188,10 @@ async def test_telemetry_for_other_session_is_rejected(sio_spy):
     other, _, other_alice_token, _ = setup_session()
     await main.join_room("sid-a", {
         "session_id": session.session_id, "role": "student",
-        "student_name": "Alice", "student_token": alice_token,
+        "student_id": sid_of(session, "Alice"), "student_token": alice_token,
     })
-    await main.telemetry("sid-a", keystroke(other.session_id, "Alice", other_alice_token, count=2))
-    assert other.students["Alice"].total_keystrokes == 0
+    await main.telemetry("sid-a", keystroke(other.session_id, sid_of(other, "Alice"), other_alice_token, count=2))
+    assert other.student_by_name("Alice").total_keystrokes == 0
     assert errors(emitted) == ["Unauthorized telemetry"]
 
 
@@ -196,7 +200,7 @@ async def test_disconnect_clears_socket_binding(sio_spy):
     session, _, alice_token, _ = setup_session()
     await main.join_room("sid-a", {
         "session_id": session.session_id, "role": "student",
-        "student_name": "Alice", "student_token": alice_token,
+        "student_id": sid_of(session, "Alice"), "student_token": alice_token,
     })
     await main.disconnect("sid-a")
     assert "sid-a" not in main._student_sockets
@@ -215,14 +219,14 @@ async def test_confusion_spike_alert_is_deduped_within_30s_and_refires_after(sio
     for name in ("Carol", "Dave"):
         session_manager.join_session(session.session_id, name)
     for name in ("Bob", "Carol", "Dave"):
-        session.students[name].status = "yellow"
+        session.student_by_name(name).status = "yellow"
     await main.join_room("sid-a", {
         "session_id": session.session_id, "role": "student",
-        "student_name": "Alice", "student_token": alice_token,
+        "student_id": sid_of(session, "Alice"), "student_token": alice_token,
     })
 
     def send():
-        return main.telemetry("sid-a", keystroke(session.session_id, "Alice", alice_token, count=1))
+        return main.telemetry("sid-a", keystroke(session.session_id, sid_of(session, "Alice"), alice_token, count=1))
 
     # Every keystroke re-marks the other three as yellow-but-unchanged, so a spike is
     # detected each time; only the first may alert.
@@ -234,7 +238,7 @@ async def test_confusion_spike_alert_is_deduped_within_30s_and_refires_after(sio
 
     # Still inside the window: a plagiarism alert in between must not reset it.
     await main.telemetry("sid-a", {
-        "session_id": session.session_id, "student_name": "Alice", "student_token": alice_token,
+        "session_id": session.session_id, "student_id": sid_of(session, "Alice"), "student_token": alice_token,
         "event": {"event_type": "paste", "payload": {"length": 500}},
     })
     await send()

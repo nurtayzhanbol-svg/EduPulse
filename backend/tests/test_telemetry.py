@@ -21,7 +21,7 @@ from telemetry import (
 )
 from models import StudentState
 
-from conftest import make_event, make_session, now_ts, start_work
+from conftest import make_event, make_session, now_ts, start_work, student_id
 
 
 # ── process_telemetry: generic behaviour ──────────────────────────
@@ -34,26 +34,26 @@ def test_unknown_student_returns_empty_dict(session):
 def test_event_is_logged_and_activity_updated(session, student):
     before = student.last_activity
     ev = make_event("keystroke", count=2, extra="x")
-    actions = process_telemetry(session, "student0", ev)
+    actions = process_telemetry(session, student_id(session, "student0"), ev)
     assert actions["dashboard_update"] is True
     assert student.last_activity >= before
     assert student.events == [{"type": "keystroke", "ts": ev.timestamp, "count": 2, "extra": "x"}]
 
 
 def test_unknown_event_type_only_updates_dashboard(session, student):
-    actions = process_telemetry(session, "student0", make_event("mystery"))
+    actions = process_telemetry(session, student_id(session, "student0"), make_event("mystery"))
     assert actions == {"dashboard_update": True}
     assert student.status == "green"
     assert student.support_signals == 0
 
 
 def test_current_code_in_payload_is_stored_for_any_event(session, student):
-    process_telemetry(session, "student0", make_event("mystery", current_code="x = 1"))
+    process_telemetry(session, student_id(session, "student0"), make_event("mystery", current_code="x = 1"))
     assert student.current_code == "x = 1"
 
 
 def test_non_string_current_code_is_ignored(session, student):
-    process_telemetry(session, "student0", make_event("keystroke", current_code=123))
+    process_telemetry(session, student_id(session, "student0"), make_event("keystroke", current_code=123))
     assert student.current_code == ""
 
 
@@ -62,24 +62,24 @@ def test_non_string_current_code_is_ignored(session, student):
 
 def test_keystroke_increments_and_resets_idle(session, student):
     student.idle_seconds = 50
-    process_telemetry(session, "student0", make_event("keystroke", count=3))
+    process_telemetry(session, student_id(session, "student0"), make_event("keystroke", count=3))
     assert student.total_keystrokes == 3
     assert student.idle_seconds == 0
 
 
 def test_keystroke_default_count_is_one(session, student):
-    process_telemetry(session, "student0", make_event("keystroke"))
+    process_telemetry(session, student_id(session, "student0"), make_event("keystroke"))
     assert student.total_keystrokes == 1
 
 
 def test_keystroke_uses_key_ts_when_numeric(session, student):
-    process_telemetry(session, "student0", make_event("keystroke", key_ts=1234.5))
+    process_telemetry(session, student_id(session, "student0"), make_event("keystroke", key_ts=1234.5))
     assert student.last_keypress_at == 1234.5
 
 
 def test_keystroke_falls_back_to_now_for_non_numeric_key_ts(session, student):
     before = now_ts()
-    process_telemetry(session, "student0", make_event("keystroke", key_ts="bad"))
+    process_telemetry(session, student_id(session, "student0"), make_event("keystroke", key_ts="bad"))
     assert student.last_keypress_at >= before
 
 
@@ -87,34 +87,34 @@ def test_keystroke_falls_back_to_now_for_non_numeric_key_ts(session, student):
 
 
 def test_backspace_counts_towards_keystrokes(session, student):
-    process_telemetry(session, "student0", make_event("keystroke", count=10))
-    process_telemetry(session, "student0", make_event("backspace", count=2))
+    process_telemetry(session, student_id(session, "student0"), make_event("keystroke", count=10))
+    process_telemetry(session, student_id(session, "student0"), make_event("backspace", count=2))
     assert student.total_backspaces == 2
     assert student.total_keystrokes == 12
 
 
 def test_backspace_below_rate_threshold_no_frustration(session, student):
-    process_telemetry(session, "student0", make_event("keystroke", count=10))
+    process_telemetry(session, student_id(session, "student0"), make_event("keystroke", count=10))
     # 3 / 13 ≈ 0.23 <= 0.35
-    process_telemetry(session, "student0", make_event("backspace", count=3))
+    process_telemetry(session, student_id(session, "student0"), make_event("backspace", count=3))
     assert student.frustration_score == 0.0
 
 
 def test_backspace_above_rate_threshold_adds_frustration(session, student):
-    process_telemetry(session, "student0", make_event("keystroke", count=10))
+    process_telemetry(session, student_id(session, "student0"), make_event("keystroke", count=10))
     # 7 / 17 ≈ 0.41 > 0.35
-    process_telemetry(session, "student0", make_event("backspace", count=7))
+    process_telemetry(session, student_id(session, "student0"), make_event("backspace", count=7))
     assert student.frustration_score == pytest.approx(0.1)
 
 
 def test_backspace_frustration_caps_at_one(session, student):
     student.frustration_score = 0.95
-    process_telemetry(session, "student0", make_event("backspace", count=1))  # rate 1.0
+    process_telemetry(session, student_id(session, "student0"), make_event("backspace", count=1))  # rate 1.0
     assert student.frustration_score == 1.0
 
 
 def test_backspace_uses_key_ts(session, student):
-    process_telemetry(session, "student0", make_event("backspace", key_ts=42))
+    process_telemetry(session, student_id(session, "student0"), make_event("backspace", key_ts=42))
     assert student.last_keypress_at == 42
 
 
@@ -122,7 +122,7 @@ def test_backspace_uses_key_ts(session, student):
 
 
 def test_idle_before_any_typing_does_not_accrue(session, student):
-    actions = process_telemetry(session, "student0", make_event("idle", idle_seconds=500))
+    actions = process_telemetry(session, student_id(session, "student0"), make_event("idle", idle_seconds=500))
     assert student.idle_seconds == 0
     assert "should_hint" not in actions
     assert student.frustration_score == 0.0
@@ -131,58 +131,58 @@ def test_idle_before_any_typing_does_not_accrue(session, student):
 
 def test_idle_before_typing_resets_previously_set_idle(session, student):
     student.idle_seconds = 30
-    process_telemetry(session, "student0", make_event("idle", idle_seconds=500))
+    process_telemetry(session, student_id(session, "student0"), make_event("idle", idle_seconds=500))
     assert student.idle_seconds == 0
 
 
 def test_idle_ignores_stale_keypress_before_typing(session, student):
     student.last_keypress_at = now_ts() - 1000
-    process_telemetry(session, "student0", make_event("idle", idle_seconds=0))
+    process_telemetry(session, student_id(session, "student0"), make_event("idle", idle_seconds=0))
     assert student.idle_seconds == 0
 
 
 def test_code_in_editor_counts_as_started_work(session, student):
     student.current_code = "print(1)"
-    process_telemetry(session, "student0", make_event("idle", idle_seconds=40))
+    process_telemetry(session, student_id(session, "student0"), make_event("idle", idle_seconds=40))
     assert student.idle_seconds == 40
 
 
 def test_whitespace_only_code_does_not_count_as_started(session, student):
     student.current_code = "   \n\t"
-    process_telemetry(session, "student0", make_event("idle", idle_seconds=40))
+    process_telemetry(session, student_id(session, "student0"), make_event("idle", idle_seconds=40))
     assert student.idle_seconds == 0
 
 
 def test_idle_takes_max_of_payload_and_wall_clock_pause(session, student):
     start_work(student)
     student.last_keypress_at = now_ts() - 200
-    process_telemetry(session, "student0", make_event("idle", idle_seconds=10))
+    process_telemetry(session, student_id(session, "student0"), make_event("idle", idle_seconds=10))
     assert student.idle_seconds == pytest.approx(200, abs=2)
 
 
 def test_idle_below_warning_threshold_no_frustration(session, student):
     start_work(student)
     # medium: pause_threshold 90 -> warning 45
-    process_telemetry(session, "student0", make_event("idle", idle_seconds=44))
+    process_telemetry(session, student_id(session, "student0"), make_event("idle", idle_seconds=44))
     assert student.frustration_score == 0.0
 
 
 def test_idle_at_warning_threshold_adds_small_frustration(session, student):
     start_work(student)
-    process_telemetry(session, "student0", make_event("idle", idle_seconds=45))
+    process_telemetry(session, student_id(session, "student0"), make_event("idle", idle_seconds=45))
     assert student.frustration_score == pytest.approx(0.05)
 
 
 def test_idle_just_below_critical_is_warning_only(session, student):
     start_work(student)
-    actions = process_telemetry(session, "student0", make_event("idle", idle_seconds=89))
+    actions = process_telemetry(session, student_id(session, "student0"), make_event("idle", idle_seconds=89))
     assert student.frustration_score == pytest.approx(0.05)
     assert "should_hint" not in actions
 
 
 def test_idle_at_critical_threshold_triggers_hint(session, student):
     start_work(student)
-    actions = process_telemetry(session, "student0", make_event("idle", idle_seconds=90))
+    actions = process_telemetry(session, student_id(session, "student0"), make_event("idle", idle_seconds=90))
     assert actions["should_hint"] is True
     assert actions["hint_reason"] == "idle_threshold_exceeded"
     assert actions["force_hint_level"] == 1
@@ -193,9 +193,9 @@ def test_idle_at_critical_threshold_triggers_hint(session, student):
 def test_idle_warning_threshold_floor_is_15s():
     session = make_session(1, task_level="easy")
     session.pause_threshold_seconds = 10  # below the 30s floor -> base 30, warning 15
-    student = session.students["student0"]
+    student = session.student_by_name("student0")
     start_work(student)
-    process_telemetry(session, "student0", make_event("idle", idle_seconds=15))
+    process_telemetry(session, student_id(session, "student0"), make_event("idle", idle_seconds=15))
     assert student.frustration_score == pytest.approx(0.05)
 
 
@@ -211,9 +211,9 @@ def test_next_hint_level_caps_between_1_and_3(current, expected):
 
 def test_idle_hint_cooldown_suppresses_second_hint(session, student):
     start_work(student)
-    first = process_telemetry(session, "student0", make_event("idle", idle_seconds=300))
+    first = process_telemetry(session, student_id(session, "student0"), make_event("idle", idle_seconds=300))
     assert first["should_hint"] is True
-    second = process_telemetry(session, "student0", make_event("idle", idle_seconds=400))
+    second = process_telemetry(session, student_id(session, "student0"), make_event("idle", idle_seconds=400))
     assert "should_hint" not in second
     assert "force_hint_level" not in second
     # frustration still accrues even without a hint
@@ -222,10 +222,10 @@ def test_idle_hint_cooldown_suppresses_second_hint(session, student):
 
 def test_idle_hint_fires_again_after_cooldown(session, student):
     start_work(student)
-    process_telemetry(session, "student0", make_event("idle", idle_seconds=300))
+    process_telemetry(session, student_id(session, "student0"), make_event("idle", idle_seconds=300))
     student.last_pause_hint_at = now_ts() - PAUSE_HINT_COOLDOWN_SECONDS - 1
     student.hint_level = 1
-    again = process_telemetry(session, "student0", make_event("idle", idle_seconds=300))
+    again = process_telemetry(session, student_id(session, "student0"), make_event("idle", idle_seconds=300))
     assert again["should_hint"] is True
     assert again["force_hint_level"] == 2
 
@@ -233,14 +233,14 @@ def test_idle_hint_fires_again_after_cooldown(session, student):
 def test_idle_hint_just_inside_cooldown_is_suppressed(session, student):
     start_work(student)
     student.last_pause_hint_at = now_ts() - (PAUSE_HINT_COOLDOWN_SECONDS - 5)
-    actions = process_telemetry(session, "student0", make_event("idle", idle_seconds=300))
+    actions = process_telemetry(session, student_id(session, "student0"), make_event("idle", idle_seconds=300))
     assert "should_hint" not in actions
 
 
 def test_force_hint_level_caps_at_three(session, student):
     start_work(student)
     student.hint_level = 3
-    actions = process_telemetry(session, "student0", make_event("idle", idle_seconds=999))
+    actions = process_telemetry(session, student_id(session, "student0"), make_event("idle", idle_seconds=999))
     assert actions["force_hint_level"] == 3
 
 
@@ -252,7 +252,7 @@ def test_force_hint_level_caps_at_three(session, student):
 def test_pause_interval_multipliers(level, base, hint_level, multiplier):
     session = make_session(1, task_level=level)
     assert session.pause_threshold_seconds == base
-    s = session.students["student0"]
+    s = session.student_by_name("student0")
     s.hint_level = hint_level
     assert _pause_interval_for_next_hint(session, s) == int(base * multiplier)
 
@@ -260,7 +260,7 @@ def test_pause_interval_multipliers(level, base, hint_level, multiplier):
 def test_pause_interval_has_30s_floor():
     session = make_session(1)
     session.pause_threshold_seconds = 5
-    assert _pause_interval_for_next_hint(session, session.students["student0"]) == 30
+    assert _pause_interval_for_next_hint(session, session.student_by_name("student0")) == 30
 
 
 def test_pause_interval_falls_back_to_idle_warning_without_attribute():
@@ -275,9 +275,9 @@ def test_critical_idle_threshold_scales_with_hint_level(session, student):
     """After one hint (level 1) the next idle hint needs 1.5x the base pause (135s on medium)."""
     start_work(student)
     student.hint_level = 1
-    actions = process_telemetry(session, "student0", make_event("idle", idle_seconds=134))
+    actions = process_telemetry(session, student_id(session, "student0"), make_event("idle", idle_seconds=134))
     assert "should_hint" not in actions
-    actions = process_telemetry(session, "student0", make_event("idle", idle_seconds=135))
+    actions = process_telemetry(session, student_id(session, "student0"), make_event("idle", idle_seconds=135))
     assert actions["should_hint"] is True
     assert actions["force_hint_level"] == 2
 
@@ -287,7 +287,8 @@ def test_critical_idle_threshold_scales_with_hint_level(session, student):
 
 def test_small_paste_is_recorded_without_alert(session, student):
     actions = process_telemetry(
-        session, "student0", make_event("paste", length=PASTE_LENGTH_THRESHOLD - 1, content_preview="abc")
+        session, student_id(session, "student0"),
+        make_event("paste", length=PASTE_LENGTH_THRESHOLD - 1, content_preview="abc"),
     )
     assert "plagiarism_alert" not in actions
     assert student.paste_events[0]["length"] == PASTE_LENGTH_THRESHOLD - 1
@@ -299,7 +300,8 @@ def test_large_paste_raises_alert_red_status_and_zero_frustration(session, stude
     start_work(student)
     student.frustration_score = 0.7
     actions = process_telemetry(
-        session, "student0", make_event("paste", length=PASTE_LENGTH_THRESHOLD, content_preview="z" * 500)
+        session, student_id(session, "student0"),
+        make_event("paste", length=PASTE_LENGTH_THRESHOLD, content_preview="z" * 500),
     )
     alert = actions["plagiarism_alert"]
     assert alert["student_name"] == "student0"
@@ -311,15 +313,15 @@ def test_large_paste_raises_alert_red_status_and_zero_frustration(session, stude
 
 
 def test_large_paste_red_status_expires_after_three_more_pastes(session, student):
-    process_telemetry(session, "student0", make_event("paste", length=500))
+    process_telemetry(session, student_id(session, "student0"), make_event("paste", length=500))
     assert student.status == "red"
     for _ in range(3):
-        process_telemetry(session, "student0", make_event("paste", length=5))
+        process_telemetry(session, student_id(session, "student0"), make_event("paste", length=5))
     assert student.status == "green"
 
 
 def test_large_paste_without_typing_flags_status_only(session, student):
-    process_telemetry(session, "student0", make_event("paste", length=500))
+    process_telemetry(session, student_id(session, "student0"), make_event("paste", length=500))
     assert student.status == "red"
     assert student.support_signals == 0
 
@@ -328,7 +330,7 @@ def test_large_paste_without_typing_flags_status_only(session, student):
 
 
 def test_help_requests_hint_and_records_message(session, student):
-    actions = process_telemetry(session, "student0", make_event("help", message="stuck on loops"))
+    actions = process_telemetry(session, student_id(session, "student0"), make_event("help", message="stuck on loops"))
     assert actions["should_hint"] is True
     assert actions["hint_reason"] == "help_request"
     assert actions["help_message"] == "stuck on loops"
@@ -337,19 +339,19 @@ def test_help_requests_hint_and_records_message(session, student):
 
 
 def test_help_stores_current_answer_as_code(session, student):
-    process_telemetry(session, "student0", make_event("help", message="?", current_answer="for i in x:"))
+    process_telemetry(session, student_id(session, "student0"), make_event("help", message="?", current_answer="for i in x:"))
     assert student.current_code == "for i in x:"
 
 
 def test_help_ignores_blank_current_answer(session, student):
     student.current_code = "keep"
-    process_telemetry(session, "student0", make_event("help", message="?", current_answer="   "))
+    process_telemetry(session, student_id(session, "student0"), make_event("help", message="?", current_answer="   "))
     assert student.current_code == "keep"
 
 
 def test_help_frustration_caps_at_one(session, student):
     for _ in range(5):
-        process_telemetry(session, "student0", make_event("help", message="?"))
+        process_telemetry(session, student_id(session, "student0"), make_event("help", message="?"))
     assert student.frustration_score == 1.0
 
 
@@ -357,19 +359,19 @@ def test_help_frustration_caps_at_one(session, student):
 
 
 def test_code_update_sets_progress_from_line_count(session, student):
-    process_telemetry(session, "student0", make_event("code_update", code="a\nb\nc"))
+    process_telemetry(session, student_id(session, "student0"), make_event("code_update", code="a\nb\nc"))
     assert student.current_code == "a\nb\nc"
     assert student.progress == 15.0
 
 
 def test_code_update_progress_caps_at_100(session, student):
-    process_telemetry(session, "student0", make_event("code_update", code="\n" * 40))
+    process_telemetry(session, student_id(session, "student0"), make_event("code_update", code="\n" * 40))
     assert student.progress == 100.0
 
 
 def test_code_update_with_missing_code_clears_editor(session, student):
     student.current_code = "old"
-    process_telemetry(session, "student0", make_event("code_update"))
+    process_telemetry(session, student_id(session, "student0"), make_event("code_update"))
     assert student.current_code == ""
     assert student.progress == 5.0
 
@@ -378,7 +380,7 @@ def test_code_update_with_missing_code_clears_editor(session, student):
 
 
 def test_pause_wait_before_typing_is_ignored(session, student):
-    actions = process_telemetry(session, "student0", make_event("pause_wait", idle_seconds=999))
+    actions = process_telemetry(session, student_id(session, "student0"), make_event("pause_wait", idle_seconds=999))
     assert student.idle_seconds == 0
     assert "should_hint" not in actions
     assert student.frustration_score == 0.0
@@ -386,7 +388,7 @@ def test_pause_wait_before_typing_is_ignored(session, student):
 
 def test_pause_wait_at_threshold_hints_with_reason(session, student):
     start_work(student)
-    actions = process_telemetry(session, "student0", make_event("pause_wait", idle_seconds=90))
+    actions = process_telemetry(session, student_id(session, "student0"), make_event("pause_wait", idle_seconds=90))
     assert actions["should_hint"] is True
     assert actions["hint_reason"] == "pause_threshold_exceeded"
     assert actions["force_hint_level"] == 1
@@ -395,7 +397,7 @@ def test_pause_wait_at_threshold_hints_with_reason(session, student):
 
 def test_pause_wait_below_threshold_no_hint(session, student):
     start_work(student)
-    actions = process_telemetry(session, "student0", make_event("pause_wait", idle_seconds=89))
+    actions = process_telemetry(session, student_id(session, "student0"), make_event("pause_wait", idle_seconds=89))
     assert "should_hint" not in actions
     assert student.frustration_score == 0.0
     assert student.idle_seconds == 89
@@ -403,20 +405,20 @@ def test_pause_wait_below_threshold_no_hint(session, student):
 
 def test_pause_wait_respects_cooldown(session, student):
     start_work(student)
-    process_telemetry(session, "student0", make_event("pause_wait", idle_seconds=300))
-    second = process_telemetry(session, "student0", make_event("pause_wait", idle_seconds=300))
+    process_telemetry(session, student_id(session, "student0"), make_event("pause_wait", idle_seconds=300))
+    second = process_telemetry(session, student_id(session, "student0"), make_event("pause_wait", idle_seconds=300))
     assert "should_hint" not in second
     assert student.frustration_score == pytest.approx(0.16)
 
 
 def test_pause_wait_stores_current_answer(session, student):
-    process_telemetry(session, "student0", make_event("pause_wait", idle_seconds=0, current_answer="x=1"))
+    process_telemetry(session, student_id(session, "student0"), make_event("pause_wait", idle_seconds=0, current_answer="x=1"))
     assert student.current_code == "x=1"
 
 
 def test_pause_wait_handles_none_idle_seconds(session, student):
     start_work(student)
-    process_telemetry(session, "student0", make_event("pause_wait", idle_seconds=None))
+    process_telemetry(session, student_id(session, "student0"), make_event("pause_wait", idle_seconds=None))
     assert student.idle_seconds == pytest.approx(0, abs=1)
 
 
@@ -435,8 +437,8 @@ def test_telemetry_never_infers_a_quiz_score(session, student):
     start_work(student)
     student.hints_given = 4
     student.frustration_score = 1.0
-    process_telemetry(session, "student0", make_event("idle", idle_seconds=300))
-    process_telemetry(session, "student0", make_event("paste", length=PASTE_LENGTH_THRESHOLD))
+    process_telemetry(session, student_id(session, "student0"), make_event("idle", idle_seconds=300))
+    process_telemetry(session, student_id(session, "student0"), make_event("paste", length=PASTE_LENGTH_THRESHOLD))
     assert student.quiz_score is None
     assert student.to_dict()["quiz_score"] is None
 
@@ -518,25 +520,25 @@ def test_status_uses_global_idle_constants_not_session_threshold():
     """A hard-level session (pause 120s) and an easy one (60s) share the same status cut-offs."""
     for level in ("easy", "medium", "hard"):
         session = make_session(1, task_level=level)
-        s = session.students["student0"]
+        s = session.student_by_name("student0")
         start_work(s)
-        process_telemetry(session, "student0", make_event("idle", idle_seconds=119))
+        process_telemetry(session, student_id(session, "student0"), make_event("idle", idle_seconds=119))
         assert s.status == "yellow", level
 
 
 def test_status_recovers_when_a_student_resumes_after_asking_for_help(session, student):
     start_work(student)
-    process_telemetry(session, "student0", make_event("help", message="stuck"))
+    process_telemetry(session, student_id(session, "student0"), make_event("help", message="stuck"))
     assert student.status == "yellow"
-    process_telemetry(session, "student0", make_event("keystroke"))
+    process_telemetry(session, student_id(session, "student0"), make_event("keystroke"))
     assert student.status == "green"
 
 
 def test_status_recovers_when_a_student_resumes_after_going_idle(session, student):
     start_work(student)
-    process_telemetry(session, "student0", make_event("idle", idle_seconds=IDLE_CRITICAL_SECONDS))
+    process_telemetry(session, student_id(session, "student0"), make_event("idle", idle_seconds=IDLE_CRITICAL_SECONDS))
     assert student.status == "red"
-    process_telemetry(session, "student0", make_event("keystroke"))
+    process_telemetry(session, student_id(session, "student0"), make_event("keystroke"))
     assert student.status == "green"
 
 
@@ -587,23 +589,23 @@ def test_confusion_spike_threshold_is_max_of_3_and_half_class(n, threshold):
 
 def test_confusion_spike_counts_yellow_and_red_only():
     session = make_session(6)
-    session.students["student0"].status = "red"
-    session.students["student1"].status = "yellow"
-    session.students["student2"].status = "green"
+    session.student_by_name("student0").status = "red"
+    session.student_by_name("student1").status = "yellow"
+    session.student_by_name("student2").status = "green"
     assert detect_confusion_spike(session) is None
-    session.students["student2"].status = "red"
+    session.student_by_name("student2").status = "red"
     assert detect_confusion_spike(session)["struggling_count"] == 3
 
 
 def test_process_telemetry_attaches_confusion_spike(session_factory):
     session = session_factory(3)
     for name in ("student0", "student1"):
-        session.students[name].status = "yellow"
-    actions = process_telemetry(session, "student2", make_event("help", message="lost"))
+        session.student_by_name(name).status = "yellow"
+    actions = process_telemetry(session, student_id(session, "student2"), make_event("help", message="lost"))
     # An unanswered help request makes student2 yellow, completing the spike.
     assert actions["confusion_spike"]["struggling_count"] == 3
     # Typing again clears student2, so the class is no longer spiking.
-    actions = process_telemetry(session, "student2", make_event("keystroke"))
+    actions = process_telemetry(session, student_id(session, "student2"), make_event("keystroke"))
     assert "confusion_spike" not in actions
 
 

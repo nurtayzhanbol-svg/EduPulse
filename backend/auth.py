@@ -49,11 +49,11 @@ def require_teacher(request: Request, session) -> None:
         raise HTTPException(403, "Invalid teacher token")
 
 
-def require_student(request: Request, session, student_name: str) -> None:
-    """Raise 401/403 unless the bearer token belongs to ``student_name`` in ``session``."""
+def require_student(request: Request, session, student_id: str) -> None:
+    """Raise 401/403 unless the bearer token belongs to ``student_id`` in ``session``."""
     token = bearer_token(request)
     if token is None:
         raise HTTPException(401, "Student token required")
-    student = session.students.get(student_name)
+    student = session.students.get(student_id)
     if student is None or not token_matches(token, student.token_hash):
         raise HTTPException(403, "Invalid student token")

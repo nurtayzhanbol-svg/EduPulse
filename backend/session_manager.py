@@ -210,14 +210,14 @@ def join_session(
     over a name by simply joining again. ``(None, None)`` means not found / inactive,
     ``(student, None)`` means the name is taken and the token did not match.
 
-    Each student is identified by a generated ``student_id`` (the DB primary key); the
-    name is a display label that is kept unique per session so the socket protocol
-    (which addresses students by name) stays unambiguous.
+    Each student is identified by a generated ``student_id`` (the state key and the DB
+    primary key); the name is a display label that is kept unique per session so a
+    teacher can tell two students apart on the dashboard.
     """
     session = get_session(session_id)
     if session is None or not session.active:
         return None, None
-    existing = session.students.get(student_name)
+    existing = session.student_by_name(student_name)
     if existing is not None:
         if token_matches(student_token, existing.token_hash):
             return existing, student_token
@@ -225,16 +225,16 @@ def join_session(
     token = new_token()
     student = StudentState(name=student_name)
     student.token_hash = hash_token(token)
-    session.students[student_name] = student
+    session.students[student.student_id] = student
     persist_session(session)
     return student, token
 
 
-def authenticate_student(session_id: str, student_name: str, student_token: Optional[str]) -> Optional[StudentState]:
+def authenticate_student(session_id: str, student_id: str, student_token: Optional[str]) -> Optional[StudentState]:
     session = get_session(session_id)
     if session is None:
         return None
-    student = session.students.get(student_name or "")
+    student = session.students.get(student_id or "")
     if student is None or not token_matches(student_token, student.token_hash):
         return None
     return student

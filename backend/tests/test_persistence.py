@@ -47,15 +47,15 @@ def test_session_and_students_survive_restart():
     assert loaded.teacher_token_hash == session.teacher_token_hash
     assert loaded.pdf_text == "material"
     assert loaded.quiz == session.quiz
-    assert set(loaded.students) == {"Alice"}
-    a = loaded.students["Alice"]
+    assert set(loaded.students) == {alice.student_id}
+    a = loaded.students[alice.student_id]
     assert a.student_id == alice.student_id
     assert a.hints_given == 2
     assert a.current_code == "print(1)\nprint(2)"
     assert a.sid is None  # transient, never persisted
 
     # Tokens still work after the restart.
-    assert session_manager.authenticate_student(sid, "Alice", alice_token) is a
+    assert session_manager.authenticate_student(sid, alice.student_id, alice_token) is a
     assert session_manager.list_sessions(teacher_token) == [{
         "session_id": sid, "task_description": "Sum a list", "active": True, "student_count": 1,
     }]
@@ -68,22 +68,22 @@ def test_session_and_students_survive_restart():
 
 def test_hot_telemetry_is_not_written_per_keystroke():
     session, _ = session_manager.create_session("x")
-    session_manager.join_session(session.session_id, "Bob")
+    bob, _ = session_manager.join_session(session.session_id, "Bob")
     for _ in range(50):
-        process_telemetry(session, "Bob", TelemetryEvent(event_type="keystroke", payload={"count": 1}))
-    assert session.students["Bob"].total_keystrokes == 50
+        process_telemetry(session, bob.student_id, TelemetryEvent(event_type="keystroke", payload={"count": 1}))
+    assert bob.total_keystrokes == 50
 
     restart()
     loaded = session_manager.get_session(session.session_id)
-    assert loaded.students["Bob"].total_keystrokes == 0  # not persisted until a transition
+    assert loaded.students[bob.student_id].total_keystrokes == 0  # not persisted until a transition
 
-    loaded.students["Bob"].total_keystrokes = 7
+    loaded.students[bob.student_id].total_keystrokes = 7
     session_manager.end_session(session.session_id)  # transition -> persisted
     restart()
     reloaded = session_manager.get_session(session.session_id)
     assert reloaded.active is False
     assert reloaded.ended_at is not None
-    assert reloaded.students["Bob"].total_keystrokes == 7
+    assert reloaded.students[bob.student_id].total_keystrokes == 7
 
 
 def test_ended_sessions_are_evicted_after_24h():
