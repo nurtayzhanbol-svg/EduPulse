@@ -1299,7 +1299,11 @@
             <label class="form-label" for="taskDraft">Task description</label>
             <textarea class="form-input" id="taskDraft" rows="14"
                 style="min-height:280px;font-family:'JetBrains Mono',monospace;font-size:.85rem;line-height:1.5"></textarea>
-            <div id="reviewSteps" style="font-size:.85rem;color:var(--text-mid);margin:10px 0;line-height:1.6"></div>
+            <label class="form-label" for="taskStepsDraft" style="margin-top:10px">Steps students tick off (one per line, 2–3)</label>
+            <textarea class="form-input" id="taskStepsDraft" rows="3"
+                style="min-height:72px;font-size:.85rem;line-height:1.5"></textarea>
+            <div id="reviewSteps" style="font-size:.8rem;color:var(--text-dim);margin:6px 0 10px;line-height:1.5">
+                Steps you leave untouched are regenerated from the edited task text at launch, so they never contradict it.</div>
             <p id="reviewStatus" style="font-size:.82rem;color:var(--text-dim);margin:8px 0;min-height:20px" aria-live="polite"></p>
             <button class="btn btn-navy btn-full" id="launchBtn" onclick="launchReviewedTask()">Launch Session →</button>
         </div>
@@ -1738,12 +1742,12 @@
             document.getElementById('taskDraft').value = data.task_description || '';
             const steps = Array.isArray(data.task_steps) ? data.task_steps : [];
             taskStepCount = steps.length;
-            document.getElementById('reviewSteps').innerHTML = steps.length
-                ? '<strong>Steps students tick off:</strong><ol style="margin:4px 0 0 1.2rem">'
-                  + steps.map(s => `<li>${s.replace(/</g, '&lt;')}</li>`).join('') + '</ol>'
-                : '';
+            reviewDraft = { description: data.task_description || '', steps: steps.join('\n') };
+            document.getElementById('taskStepsDraft').value = reviewDraft.steps;
             document.getElementById('reviewStatus').textContent = '';
         }
+
+        let reviewDraft = { description: '', steps: '' };
 
         async function launchReviewedTask() {
             const status = document.getElementById('reviewStatus');
@@ -1754,6 +1758,15 @@
                 status.style.color = 'var(--red)';
                 return;
             }
+            const stepsText = document.getElementById('taskStepsDraft').value;
+            const stepsEdited = stepsText.trim() !== reviewDraft.steps.trim();
+            const descriptionEdited = description !== reviewDraft.description.trim();
+            const payload = { task_description: description };
+            // Steps the teacher wrote win; untouched steps under an edited task are regenerated server-side.
+            if (stepsEdited || !descriptionEdited) {
+                payload.task_steps = stepsText.split('\n').map(s => s.trim()).filter(Boolean);
+                if (!payload.task_steps.length) delete payload.task_steps;
+            }
             btn.disabled = true;
             status.textContent = 'Launching session…';
             status.style.color = 'var(--text-dim)';
@@ -1761,11 +1774,13 @@
                 const res = await fetch(`${API}/api/sessions/${sessionId}/launch`, {
                     method: 'POST',
                     headers: authHeaders({ 'Content-Type': 'application/json' }),
-                    body: JSON.stringify({ task_description: description }),
+                    body: JSON.stringify(payload),
                 });
                 if (!res.ok) throw new Error(await parseApiError(res));
+                const launched = await res.json();
+                if (Array.isArray(launched.task_steps)) taskStepCount = launched.task_steps.length;
                 document.getElementById('reviewPanel').style.display = 'none';
-                showDashboard({ ...(pendingSession || {}), task_description: description });
+                showDashboard({ ...(pendingSession || {}), task_description: description, task_steps: launched.task_steps });
                 initSocket(sessionId);
             } catch (e) {
                 status.textContent = '❌ ' + e.message;
@@ -1839,8 +1854,27 @@
             // Alerts
             socket.on('alert', (data) => {
                 const type = data.type === 'large_paste' ? 'note' : 'warn';
-                pushAlert(type, data.student_name || 'System', data.message || '', data.type === 'large_paste' ? data : null);
-                pushFeed(type === 'note' ? 'info' : type, `<strong>${data.student_name || 'System'}</strong>: ${data.message || ''}`);
+                if (data.type === 'confusion_spike') {
+                    document.getElementById(CONFUSION_ALERT_ID)?.remove();
+                    pushAlert(type, 'Class', data.message || '', null, CONFUSION_ALERT_ID);
+                } else {
+                    pushAlert(type, data.student_name || 'System', data.message || '', data.type === 'large_paste' ? data : null);
+                }
+                pushFeed(type === 'note' ? 'info' : type, `<strong>${data.student_name || 'Class'}</strong>: ${data.message || ''}`);
+            });
+
+            // Live count while a confusion episode lasts; the alert clears once students recover.
+            socket.on('confusion_update', (data) => {
+                const el = document.getElementById(CONFUSION_ALERT_ID);
+                if (data.active === false) {
+                    if (el) {
+                        el.remove();
+                        pushFeed('info', `<strong>Class</strong>: confusion resolved — ${data.struggling_count || 0}/${data.total_count || 0} still stuck.`);
+                    }
+                    return;
+                }
+                const detail = el?.querySelector('.alert-detail');
+                if (detail) detail.textContent = data.message || `${data.struggling_count}/${data.total_count} students are stuck right now.`;
             });
 
             // Hint given
@@ -2015,9 +2049,11 @@
             if (!res.ok && btn) btn.disabled = false;
         }
 
-        function pushAlert(type, name, text, pasteData = null) {
+        const CONFUSION_ALERT_ID = 'alert-confusion';
+
+        function pushAlert(type, name, text, pasteData = null, fixedId = null) {
             const area = document.getElementById('alertsArea');
-            const id = 'a' + Date.now() + Math.floor(Math.random() * 1000);
+            const id = fixedId || ('a' + Date.now() + Math.floor(Math.random() * 1000));
             const cls = type === 'flag' ? 'alert-flag' : type === 'note' ? 'alert-note' : 'alert-warn';
             const icon = type === 'flag' || type === 'note'
                 ? `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/></svg>`

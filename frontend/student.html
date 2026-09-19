@@ -1206,6 +1206,8 @@
         // ═══════════════════════════════════════════════════════════════
         const API = '';
         let socket = null, sessionId = null, studentName = null, studentId = '', studentToken = '';
+        // Work the server kept for this student (returned on (re)join), restored instead of the starter.
+        let savedWork = { code: '', completedSteps: [], taskSteps: [] };
         let idleTimer = null;
         const STUDENT_TOKEN_KEY = 'edupulse_student_token';
         function studentAuthHeaders(extra = {}) {
@@ -1344,13 +1346,14 @@
                 const data = await res.json();
                 if (!res.ok) throw new Error(data.detail || 'Could not load session task');
                 tasks = [buildTaskFromDescription(data.task_description || '')];
-                steps = data.task_steps || [];
-                const me = (data.students || {})[studentId];
-                done = (me && me.completed_steps) || [];
+                steps = data.task_steps || savedWork.taskSteps || [];
             } catch (e) {
                 tasks = [buildTaskFromDescription('Task: Review the uploaded material and attempt the core exercise.')];
                 showTeacherMsg('Could not load task: ' + e.message);
             }
+            // Completed steps only carry over to the checklist they were ticked on.
+            const sameSteps = steps.length === savedWork.taskSteps.length && steps.every((s, i) => s === savedWork.taskSteps[i]);
+            done = sameSteps ? savedWork.completedSteps : [];
             currentTask = 1;
             setTaskSteps(steps, done);
             loadTask(1);
@@ -1505,6 +1508,11 @@
                 const data = await res.json();
                 studentToken = data.student_token || '';
                 studentId = data.student_id || '';
+                savedWork = {
+                    code: typeof data.current_code === 'string' ? data.current_code : '',
+                    completedSteps: Array.isArray(data.completed_steps) ? data.completed_steps : [],
+                    taskSteps: Array.isArray(data.task_steps) ? data.task_steps : [],
+                };
                 sessionStorage.setItem(STUDENT_TOKEN_KEY, JSON.stringify({ session: sid, name, token: studentToken }));
 
                 showWorkspace(name, sid);
@@ -1766,7 +1774,9 @@
             const headline = document.getElementById('taskHeadline');
             if (headline) headline.textContent = t.name || 'AI Task from Class Material';
             const editor = document.getElementById('codeArea');
-            editor.value = t.starter;
+            // Restore saved work on (re)join; the starter is only for a blank editor. Nothing is
+            // sent to the server here, so a reload never overwrites the saved copy.
+            editor.value = savedWork.code ? savedWork.code : t.starter;
             hintLevel = 0;
             closeHint();
             updateLineNums();

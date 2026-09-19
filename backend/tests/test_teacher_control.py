@@ -63,6 +63,7 @@ async def test_launch_saves_final_task_and_opens_joins(client):  # noqa: F811
     assert r.json() == {
         "launched": True,
         "task_description": "Task: reviewed by the teacher",
+        "task_steps": session_manager.get_session(sid).task_steps,
         "join_url": f"/student.html?session={sid}",
     }
     state = (await client.get(f"/api/sessions/{sid}")).json()
