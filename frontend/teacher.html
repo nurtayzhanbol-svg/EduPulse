@@ -1844,9 +1844,9 @@
 
             // Map backend status (green/yellow/red) to UI classes
             const statusMap = {
-                green: ['card-teal', 'sb-teal', 'On Track', 'var(--teal)'],
-                yellow: ['card-amber', 'sb-amber', 'Struggling', 'var(--amber)'],
-                red: ['card-red', 'sb-red', 'Critical', 'var(--red)'],
+                green: ['card-teal', 'sb-teal', 'Working', 'var(--teal)'],
+                yellow: ['card-amber', 'sb-amber', 'Check In', 'var(--amber)'],
+                red: ['card-red', 'sb-red', 'Needs Help Now', 'var(--red)'],
             };
             const [cardCls, badgeCls, statusLabel, progColor] = statusMap[s.status] || statusMap.green;
             const statusGlyph = s.status === 'red' ? '✕ ' : (s.status === 'yellow' ? '▲ ' : '● ');
@@ -2079,9 +2079,9 @@
             document.getElementById('smHints').textContent = s.hints_given || 0;
 
             const statusMap = {
-                green: ['sb-teal', 'On Track'],
-                yellow: ['sb-amber', 'Struggling'],
-                red: ['sb-red', 'Critical'],
+                green: ['sb-teal', 'Working'],
+                yellow: ['sb-amber', 'Check In'],
+                red: ['sb-red', 'Needs Help Now'],
             };
             const [badgeCls, statusLabel] = statusMap[s.status] || statusMap.green;
             document.getElementById('smStatus').className = `status-badge ${badgeCls}`;

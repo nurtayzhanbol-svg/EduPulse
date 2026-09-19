@@ -4,6 +4,7 @@ from __future__ import annotations
 import os
 import json
 import re
+from datetime import datetime
 from models import StudentState, SessionState
 
 # ── OpenAI client (lazy init) ─────────────────────────────────────
@@ -241,6 +242,7 @@ async def generate_hint(
         level = min(3, student.hint_level + 1)
     student.hint_level = level
     student.hints_given += 1
+    student.last_support_at = datetime.now().timestamp()
     if not (class_material or "").strip():
         return _material_required_hint(student.name)
     anchors = _extract_material_anchors(class_material)

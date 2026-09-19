@@ -8,8 +8,10 @@ import telemetry
 from telemetry import (
     IDLE_CRITICAL_SECONDS,
     IDLE_WARNING_SECONDS,
+    PASTE_FLAG_SECONDS,
     PASTE_LENGTH_THRESHOLD,
     PAUSE_HINT_COOLDOWN_SECONDS,
+    SUPPORT_RECOVERY_SECONDS,
     _next_hint_level,
     _pause_interval_for_next_hint,
     _update_status,
@@ -442,13 +444,20 @@ def test_telemetry_never_infers_a_quiz_score(session, student):
 # ── _update_status ────────────────────────────────────────────────
 
 
-def _status(hints=0, idle=0.0, frustration=0.0, pastes=()):
+def _status(idle=0.0, frustration=0.0, hints=0, support_ago=None,
+            typed_since_support=False, pastes=(), paste_age=0.0):
+    now = now_ts()
     s = StudentState("x")
     s.hints_given = hints
     s.idle_seconds = idle
     s.frustration_score = frustration
-    s.paste_events = [{"length": p} for p in pastes]
-    _update_status(s)
+    s.last_keypress_at = now - 1
+    if support_ago is not None:
+        s.last_support_at = now - support_ago
+        if not typed_since_support:
+            s.last_keypress_at = s.last_support_at - 1
+    s.paste_events = [{"length": p, "timestamp": now - paste_age} for p in pastes]
+    _update_status(s, now)
     return s.status
 
 
@@ -456,9 +465,14 @@ def test_status_green_by_default():
     assert _status() == "green"
 
 
-def test_status_red_on_large_paste_regardless_of_other_state():
+def test_status_red_on_recent_large_paste():
     assert _status(pastes=(PASTE_LENGTH_THRESHOLD,)) == "red"
     assert _status(pastes=(PASTE_LENGTH_THRESHOLD - 1,)) == "green"
+
+
+def test_status_large_paste_flag_ages_out():
+    assert _status(pastes=(500,), paste_age=PASTE_FLAG_SECONDS - 1) == "red"
+    assert _status(pastes=(500,), paste_age=PASTE_FLAG_SECONDS + 1) == "green"
 
 
 def test_status_large_paste_only_checks_last_three():
@@ -466,36 +480,38 @@ def test_status_large_paste_only_checks_last_three():
     assert _status(pastes=(1, 500, 1, 1)) == "red"
 
 
-@pytest.mark.parametrize("hints,expected", [(2, "yellow"), (3, "red"), (4, "red")])
-def test_status_hint_count_boundary_at_three(hints, expected):
-    assert _status(hints=hints) == expected
+@pytest.mark.parametrize("hints", [1, 2, 5])
+def test_status_ignores_lifetime_hint_count(hints):
+    """Hints are history; a student typing away right now is green whatever they used."""
+    assert _status(hints=hints) == "green"
 
 
-def test_status_idle_boundary_at_double_critical():
-    assert _status(idle=IDLE_CRITICAL_SECONDS * 2 - 1) == "yellow"
-    assert _status(idle=IDLE_CRITICAL_SECONDS * 2) == "red"
+def test_status_yellow_while_support_is_unresolved():
+    assert _status(support_ago=10) == "yellow"
 
 
-def test_status_two_hints_plus_idle_warning_is_red():
-    assert _status(hints=2, idle=IDLE_WARNING_SECONDS - 1) == "yellow"
-    assert _status(hints=2, idle=IDLE_WARNING_SECONDS) == "red"
+def test_status_clears_once_the_student_types_again():
+    assert _status(support_ago=10, typed_since_support=True) == "green"
 
 
-def test_status_one_hint_is_yellow_even_with_idle_warning():
-    assert _status(hints=1, idle=IDLE_WARNING_SECONDS) == "yellow"
+def test_status_unresolved_support_expires_after_recovery_window():
+    assert _status(support_ago=SUPPORT_RECOVERY_SECONDS + 1) == "green"
 
 
-def test_status_idle_critical_boundary_is_yellow():
-    assert _status(idle=IDLE_CRITICAL_SECONDS - 1) == "green"
-    assert _status(idle=IDLE_CRITICAL_SECONDS) == "yellow"
+def test_status_red_when_still_idle_after_support():
+    assert _status(support_ago=10, idle=IDLE_WARNING_SECONDS - 1) == "yellow"
+    assert _status(support_ago=10, idle=IDLE_WARNING_SECONDS) == "red"
 
 
-def test_status_high_frustration_alone_stays_green():
-    """The frustration>=0.95 branch is unreachable: it also requires idle>=120,
-    which the preceding branch already turns yellow. Pin current behaviour."""
+def test_status_idle_boundaries():
+    assert _status(idle=IDLE_WARNING_SECONDS - 1) == "green"
+    assert _status(idle=IDLE_WARNING_SECONDS) == "yellow"
+    assert _status(idle=IDLE_CRITICAL_SECONDS - 1) == "yellow"
+    assert _status(idle=IDLE_CRITICAL_SECONDS) == "red"
+
+
+def test_status_frustration_alone_stays_green():
     assert _status(frustration=1.0) == "green"
-    assert _status(frustration=1.0, idle=IDLE_CRITICAL_SECONDS - 1) == "green"
-    assert _status(frustration=1.0, idle=IDLE_CRITICAL_SECONDS) == "yellow"
 
 
 def test_status_uses_global_idle_constants_not_session_threshold():
@@ -505,7 +521,23 @@ def test_status_uses_global_idle_constants_not_session_threshold():
         s = session.students["student0"]
         start_work(s)
         process_telemetry(session, "student0", make_event("idle", idle_seconds=119))
-        assert s.status == "green", level
+        assert s.status == "yellow", level
+
+
+def test_status_recovers_when_a_student_resumes_after_asking_for_help(session, student):
+    start_work(student)
+    process_telemetry(session, "student0", make_event("help", message="stuck"))
+    assert student.status == "yellow"
+    process_telemetry(session, "student0", make_event("keystroke"))
+    assert student.status == "green"
+
+
+def test_status_recovers_when_a_student_resumes_after_going_idle(session, student):
+    start_work(student)
+    process_telemetry(session, "student0", make_event("idle", idle_seconds=IDLE_CRITICAL_SECONDS))
+    assert student.status == "red"
+    process_telemetry(session, "student0", make_event("keystroke"))
+    assert student.status == "green"
 
 
 # ── detect_confusion_spike ────────────────────────────────────────
@@ -568,11 +600,11 @@ def test_process_telemetry_attaches_confusion_spike(session_factory):
     for name in ("student0", "student1"):
         session.students[name].status = "yellow"
     actions = process_telemetry(session, "student2", make_event("help", message="lost"))
-    # help -> frustration only, no hints_given yet, so student2 stays green -> no spike
-    assert "confusion_spike" not in actions
-    session.students["student2"].hints_given = 1
-    actions = process_telemetry(session, "student2", make_event("keystroke"))
+    # An unanswered help request makes student2 yellow, completing the spike.
     assert actions["confusion_spike"]["struggling_count"] == 3
+    # Typing again clears student2, so the class is no longer spiking.
+    actions = process_telemetry(session, "student2", make_event("keystroke"))
+    assert "confusion_spike" not in actions
 
 
 # ── confusion spike dedup window ─────────────────────────────────────

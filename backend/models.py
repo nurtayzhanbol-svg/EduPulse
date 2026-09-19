@@ -80,6 +80,9 @@ class StudentState:
         self.events: list[dict] = []  # raw event log
         self.last_keypress_at: float = datetime.now().timestamp()
         self.last_pause_hint_at: float = 0.0
+        # When support last reached this student (hint delivered or help asked for).
+        # Status uses it to tell "stuck right now" from "needed help earlier".
+        self.last_support_at: float = 0.0
 
     @property
     def support_signals(self) -> int:
@@ -112,6 +115,7 @@ class StudentState:
             "frustration_score": round(self.frustration_score, 2),
             "last_activity": self.last_activity,
             "last_keypress_at": self.last_keypress_at,
+            "last_support_at": self.last_support_at,
             "help_requests": self.help_requests[-3:],  # last 3
             "current_code_lines": self.current_code.count("\n") + 1 if self.current_code else 0,
             "current_code_preview": code_preview,

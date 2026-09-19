@@ -20,7 +20,7 @@ from models import (
 )
 import session_manager
 from auth import bearer_token, require_student, require_teacher, token_matches
-from telemetry import is_duplicate_confusion_spike, process_telemetry
+from telemetry import is_duplicate_confusion_spike, process_telemetry, refresh_status
 from ai_engine import (
     generate_hint,
     generate_quiz,
@@ -784,7 +784,9 @@ async def telemetry(sid, data):
                 "hint": hint_text,
                 "level": student.hint_level,
             }, room=session_id)
+            refresh_status(student)
             session_manager.persist_session(session)
+            await broadcast_dashboard(session)
 
     # Plagiarism alert
     if actions.get("plagiarism_alert"):
