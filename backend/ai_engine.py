@@ -9,6 +9,8 @@ from models import StudentState, SessionState
 # ── OpenAI client (lazy init) ─────────────────────────────────────
 _client = None
 _ai_disabled = False
+_temperature_supported = True
+_json_schema_supported = True
 
 
 def _handle_ai_exception(error: Exception, operation: str):
@@ -41,12 +43,52 @@ def _get_client():
         )
     else:
         from openai import AsyncOpenAI
-        _client = AsyncOpenAI(api_key=api_key)
+        _client = AsyncOpenAI(api_key=api_key, base_url=os.environ.get("OPENAI_BASE_URL") or None)
     return _client
 
 
 def _get_model() -> str:
-    return os.environ.get("OPENAI_MODEL", "gpt-4o")
+    return os.environ.get("OPENAI_MODEL", "gpt-5.6-luna")
+
+
+async def _chat(
+    client,
+    system_prompt: str,
+    user_prompt: str,
+    max_tokens: int,
+    temperature: float,
+    json_schema: dict | None = None,
+):
+    """Chat completion that degrades gracefully on models rejecting custom temperature
+    or structured outputs."""
+    global _temperature_supported, _json_schema_supported
+    messages = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": user_prompt},
+    ]
+    kwargs = {"max_completion_tokens": max_tokens}
+    if _temperature_supported:
+        kwargs["temperature"] = temperature
+    if json_schema is not None and _json_schema_supported:
+        kwargs["response_format"] = {
+            "type": "json_schema",
+            "json_schema": {"name": "structured_output", "strict": True, "schema": json_schema},
+        }
+
+    while True:
+        try:
+            return await client.chat.completions.create(model=_get_model(), messages=messages, **kwargs)
+        except Exception as e:
+            message = str(e)
+            if _temperature_supported and "temperature" in message:
+                _temperature_supported = False
+                kwargs.pop("temperature", None)
+                continue
+            if "response_format" in kwargs and ("response_format" in message or "json_schema" in message):
+                _json_schema_supported = False
+                kwargs.pop("response_format")
+                continue
+            raise
 
 
 def is_ai_available() -> bool:
@@ -185,15 +227,7 @@ You MUST mention at least one material anchor term exactly.
 Remember: be empathetic, concise, and do NOT give the answer."""
 
     try:
-        response = await client.chat.completions.create(
-            model=_get_model(),
-            messages=[
-                {"role": "system", "content": HINT_SYSTEM_PROMPT},
-                {"role": "user", "content": user_prompt},
-            ],
-            max_tokens=250,
-            temperature=0.7,
-        )
+        response = await _chat(client, HINT_SYSTEM_PROMPT, user_prompt, max_tokens=250, temperature=0.7)
         content = (response.choices[0].message.content or "").strip()
         return _ensure_anchor_in_hint(content, anchors)
     except Exception as e:
@@ -307,15 +341,7 @@ Session duration: active session
 Generate a comprehensive but concise teaching report."""
 
     try:
-        response = await client.chat.completions.create(
-            model=_get_model(),
-            messages=[
-                {"role": "system", "content": SUMMARY_SYSTEM_PROMPT},
-                {"role": "user", "content": user_prompt},
-            ],
-            max_tokens=800,
-            temperature=0.5,
-        )
+        response = await _chat(client, SUMMARY_SYSTEM_PROMPT, user_prompt, max_tokens=800, temperature=0.5)
         return response.choices[0].message.content.strip()
     except Exception as e:
         _handle_ai_exception(e, "Summary generation")
@@ -380,16 +406,55 @@ Rules:
 - Questions should test conceptual understanding, not just memorization.
 - Return ONLY valid JSON, no markdown formatting.
 
-Return format (JSON array):
-[
-  {
-    "question": "What does X do?",
-    "options": {"A": "option1", "B": "option2", "C": "option3", "D": "option4"},
-    "correct": "B",
-    "explanation": "Brief explanation of why B is correct",
-    "task_description": "Optional: For practical questions, a task description the student should solve"
-  }
-]"""
+Return format (JSON object):
+{
+  "questions": [
+    {
+      "question": "What does X do?",
+      "options": {"A": "option1", "B": "option2", "C": "option3", "D": "option4"},
+      "correct": "B",
+      "explanation": "Brief explanation of why B is correct",
+      "task_description": "For practical questions, a task description the student should solve"
+    }
+  ]
+}"""
+
+
+def _quiz_schema(mode: str) -> dict:
+    """JSON schema enforcing the quiz shape for models supporting structured outputs."""
+    question_props = {
+        "question": {"type": "string"},
+        "options": {
+            "type": "object",
+            "properties": {key: {"type": "string"} for key in ("A", "B", "C", "D")},
+            "required": ["A", "B", "C", "D"],
+            "additionalProperties": False,
+        },
+        "correct": {"type": "string", "enum": ["A", "B", "C", "D"]},
+        "explanation": {"type": "string"},
+        "task_description": {"type": "string", "minLength": 20},
+    }
+    required = ["question", "options", "correct", "explanation"]
+    if mode == "practical":
+        required.append("task_description")
+    else:
+        question_props.pop("task_description")
+    return {
+        "type": "object",
+        "properties": {
+            "questions": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": question_props,
+                    "required": required,
+                    "additionalProperties": False,
+                },
+            }
+        },
+        "required": ["questions"],
+        "additionalProperties": False,
+    }
 
 
 async def generate_quiz(
@@ -426,7 +491,11 @@ async def generate_quiz(
     
     mode_instruction = ""
     if mode == "practical":
-        mode_instruction = "\n\nFor PRACTICAL questions: Include a 'task_description' field for each question that describes a coding or problem-solving task the student should complete to answer the question."
+        mode_instruction = (
+            "\n\nFor PRACTICAL questions: every question object MUST contain a non-empty "
+            "'task_description' field describing a coding or problem-solving task the student "
+            "completes to answer the question. A question without it is invalid."
+        )
     
     if client is None:
         return _mock_quiz(num_questions)
@@ -438,17 +507,16 @@ async def generate_quiz(
 Difficulty: {difficulty.upper()}
 {diff_instruction}{mode_instruction}
 
-Return ONLY a valid JSON array. No markdown, no code blocks, just the JSON."""
+Return ONLY a valid JSON object of the form {{"questions": [...]}}. No markdown, no code blocks, just the JSON."""
 
     try:
-        response = await client.chat.completions.create(
-            model=_get_model(),
-            messages=[
-                {"role": "system", "content": QUIZ_SYSTEM_PROMPT},
-                {"role": "user", "content": user_prompt},
-            ],
+        response = await _chat(
+            client,
+            QUIZ_SYSTEM_PROMPT,
+            user_prompt,
             max_tokens=1500,
             temperature=0.6,
+            json_schema=_quiz_schema(mode),
         )
         raw = response.choices[0].message.content.strip()
         # Strip markdown code blocks if present
@@ -458,6 +526,8 @@ Return ONLY a valid JSON array. No markdown, no code blocks, just the JSON."""
                 raw = raw[:-3]
             raw = raw.strip()
         questions = json.loads(raw)
+        if isinstance(questions, dict):
+            questions = questions.get("questions")
         # Validate structure
         if not isinstance(questions, list):
             return []
@@ -568,12 +638,10 @@ async def analyze_pdf_content(pdf_text: str, task_description: str = "") -> str:
         context += f"\n\nLab Task:\n{task_description[:500]}"
 
     try:
-        response = await client.chat.completions.create(
-            model=_get_model(),
-            messages=[
-                {"role": "system", "content": PDF_ANALYSIS_PROMPT},
-                {"role": "user", "content": f"Analyze this material:\n\n{context}"},
-            ],
+        response = await _chat(
+            client,
+            PDF_ANALYSIS_PROMPT,
+            f"Analyze this material:\n\n{context}",
             max_tokens=600,
             temperature=0.5,
         )
@@ -620,12 +688,10 @@ Material:
 """
 
     try:
-        response = await client.chat.completions.create(
-            model=_get_model(),
-            messages=[
-                {"role": "system", "content": "You create high-quality classroom tasks grounded in the provided material."},
-                {"role": "user", "content": prompt},
-            ],
+        response = await _chat(
+            client,
+            "You create high-quality classroom tasks grounded in the provided material.",
+            prompt,
             max_tokens=280,
             temperature=0.4,
         )
