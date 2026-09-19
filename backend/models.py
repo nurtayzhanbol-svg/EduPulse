@@ -12,6 +12,7 @@ from auth import new_session_id, new_student_id
 class CreateSessionRequest(BaseModel):
     task_description: str = ""
     task_level: str = "medium"  # easy | medium | hard
+    pause_threshold_seconds: int | None = None
 
 
 class CreateSessionResponse(BaseModel):
@@ -104,6 +105,7 @@ class StudentState:
         self.paste_events: list[dict] = []
         self.idle_seconds: float = 0.0
         self.hints_given: int = 0
+        self.auto_hints_given: int = 0
         self.hint_level: int = 0
         self.last_activity: float = datetime.now().timestamp()
         self.help_requests: list[str] = []
@@ -116,7 +118,10 @@ class StudentState:
         self.frustration_score: float = 0.0
         self.events: list[dict] = []  # ring buffer of {"type", "ts"}, capped at MAX_EVENTS
         self.last_keypress_at: float = datetime.now().timestamp()
-        self.last_pause_hint_at: float = 0.0
+        self.last_help_at: float = 0.0
+        self.needs_attention_since: float | None = None
+        self.attention_reason: str = ""
+        self.keystrokes_since_stall: int = 0
         # When support last reached this student (hint delivered or help asked for).
         # Status uses it to tell "stuck right now" from "needed help earlier".
         self.last_support_at: float = 0.0
@@ -180,7 +185,9 @@ class StudentState:
             "idle_seconds": round(self.idle_seconds, 1),
             "hints_given": self.hints_given,
             "hint_level": self.hint_level,
-            "frustration_score": round(self.frustration_score, 2),
+            "attention_reason": self.attention_reason,
+            "needs_attention_since": self.needs_attention_since,
+            "seconds_stuck": round(datetime.now().timestamp() - self.needs_attention_since, 1) if self.needs_attention_since else 0,
             "last_activity": self.last_activity,
             "last_keypress_at": self.last_keypress_at,
             "last_support_at": self.last_support_at,
@@ -212,13 +219,13 @@ class StudentState:
 class SessionState:
     """Mutable in-memory state for a lab session."""
 
-    def __init__(self, task_description: str, task_level: str = "medium"):
+    def __init__(self, task_description: str, task_level: str = "medium", pause_threshold_seconds: int | None = None):
         level = (task_level or "medium").lower()
         if level not in ("easy", "medium", "hard"):
             level = "medium"
 
         pause_threshold_map = {
-            "easy": 60,
+            "easy": 90,
             "medium": 90,
             "hard": 120,
         }
@@ -228,7 +235,7 @@ class SessionState:
         self.task_description: str = task_description
         self.task_steps: list[str] = []  # 2-3 numbered steps students tick off; drives progress
         self.task_level: str = level
-        self.pause_threshold_seconds: int = pause_threshold_map[level]
+        self.pause_threshold_seconds: int = max(30, int(pause_threshold_seconds)) if pause_threshold_seconds is not None else pause_threshold_map[level]
         self.quiz_mode_preference: str = "practical"
         self.quiz_difficulty_preference: str = level
         self.created_at: float = datetime.now().timestamp()
@@ -301,7 +308,8 @@ class SessionState:
     @classmethod
     def from_record(cls, record: dict, students: list[StudentState]) -> "SessionState":
         session = cls(task_description=record.get("task_description", ""),
-                      task_level=record.get("task_level", "medium"))
+                      task_level=record.get("task_level", "medium"),
+                      pause_threshold_seconds=record.get("pause_threshold_seconds"))
         for key, value in record.items():
             if key == "students":
                 continue

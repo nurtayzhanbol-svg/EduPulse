@@ -4,14 +4,16 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from telemetry import _next_hint_level
-from models import StudentState
+from conftest import make_event, start_work, student_id
+from telemetry import process_telemetry
 
 FRONTEND = Path(__file__).resolve().parents[2] / "frontend"
 
 
-def test_first_hint_is_level_one():
-    assert _next_hint_level(StudentState(name="A")) == 1
+def test_first_auto_hint_is_level_one(session, student):
+    start_work(student)
+    actions = process_telemetry(session, student_id(session), make_event("idle", idle_seconds=90))
+    assert actions["force_hint_level"] == 1
 
 
 def test_student_page_maps_level_one_to_the_concept_hint():

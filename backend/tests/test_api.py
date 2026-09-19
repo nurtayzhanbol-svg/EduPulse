@@ -122,7 +122,7 @@ async def test_full_happy_path(client):
     state = r.json()
     assert state["active"] is True
     assert state["task_level"] == "easy"
-    assert state["pause_threshold_seconds"] == 60
+    assert state["pause_threshold_seconds"] == 90
     assert state["student_count"] == 2
     assert "students" not in state  # unauthenticated view carries no student data
     assert state["has_material"] is False
@@ -785,6 +785,21 @@ async def test_create_session_level_is_case_insensitive(client):
     r = await client.get(f"/api/sessions/{sid}")
     assert r.json()["task_level"] == "hard"
     assert r.json()["pause_threshold_seconds"] == 120
+
+
+async def test_create_session_pause_threshold_override_is_floored(client):
+    r = await client.post("/api/sessions", json={"pause_threshold_seconds": 12})
+    assert r.status_code == 200
+    sid = r.json()["session_id"]
+    state = await client.get(f"/api/sessions/{sid}")
+    assert state.json()["pause_threshold_seconds"] == 30
+
+
+async def test_create_session_pause_threshold_override_wins(client):
+    r = await client.post("/api/sessions", json={"task_level": "easy", "pause_threshold_seconds": 47})
+    sid = r.json()["session_id"]
+    state = await client.get(f"/api/sessions/{sid}")
+    assert state.json()["pause_threshold_seconds"] == 47
 
 
 async def test_create_session_defaults(client):

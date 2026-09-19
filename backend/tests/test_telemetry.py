@@ -4,16 +4,9 @@ from __future__ import annotations
 
 import pytest
 
-import ai_engine
 import telemetry
 from telemetry import (
-    IDLE_CRITICAL_SECONDS,
-    IDLE_WARNING_SECONDS,
     PASTE_LENGTH_THRESHOLD,
-    PAUSE_HINT_COOLDOWN_SECONDS,
-    SUPPORT_RECOVERY_SECONDS,
-    _next_hint_level,
-    _pause_interval_for_next_hint,
     _update_status,
     detect_confusion_spike,
     process_telemetry,
@@ -187,7 +180,7 @@ def test_idle_at_critical_threshold_triggers_hint(session, student):
     assert actions["hint_reason"] == "idle_threshold_exceeded"
     assert actions["force_hint_level"] == 1
     assert student.frustration_score == pytest.approx(0.12)
-    assert student.last_pause_hint_at > 0
+    assert student.auto_hints_given == 1
 
 
 def test_idle_warning_threshold_floor_is_15s():
@@ -202,47 +195,22 @@ def test_idle_warning_threshold_floor_is_15s():
 # ── hint escalation ───────────────────────────────────────────────
 
 
-@pytest.mark.parametrize("current,expected", [(0, 1), (1, 2), (2, 3), (3, 3), (10, 3), (-5, 1)])
-def test_next_hint_level_caps_between_1_and_3(current, expected):
-    s = StudentState("x")
-    s.hint_level = current
-    assert _next_hint_level(s) == expected
-
-
-def test_idle_hint_cooldown_suppresses_second_hint(session, student):
+def test_idle_hint_is_one_shot_level_one(session, student):
     start_work(student)
     first = process_telemetry(session, student_id(session, "student0"), make_event("idle", idle_seconds=300))
-    assert first["should_hint"] is True
     second = process_telemetry(session, student_id(session, "student0"), make_event("idle", idle_seconds=400))
+    assert first["force_hint_level"] == 1
     assert "should_hint" not in second
-    assert "force_hint_level" not in second
-    # frustration still accrues even without a hint
-    assert student.frustration_score == pytest.approx(0.24)
+    assert student.auto_hints_given == 1
 
 
-def test_idle_alone_never_escalates_past_level_one(session, student):
-    """Silence earns one Level-1 nudge; Level 2 needs a help click or changed code."""
+def test_idle_after_changed_code_does_not_auto_escalate(session, student):
     start_work(student)
     first = process_telemetry(session, student_id(session, "student0"), make_event("idle", idle_seconds=300))
-    assert first["force_hint_level"] == 1
-    student.last_pause_hint_at = now_ts() - PAUSE_HINT_COOLDOWN_SECONDS - 1
-    student.hint_level = 1
-    ai_engine._remember_hint_delivery(student, now=0.0)
-    again = process_telemetry(session, student_id(session, "student0"), make_event("idle", idle_seconds=300))
-    assert "should_hint" not in again
-    assert "force_hint_level" not in again
-
-
-def test_idle_after_changed_code_may_propose_next_level(session, student):
-    start_work(student)
-    student.hint_level = 1
-    student.set_code("x = 1")
-    ai_engine._remember_hint_delivery(student, now=0.0)
     student.set_code("x = 1\ny = 2")
-    student.last_pause_hint_at = now_ts() - PAUSE_HINT_COOLDOWN_SECONDS - 1
     again = process_telemetry(session, student_id(session, "student0"), make_event("idle", idle_seconds=300))
-    assert again["should_hint"] is True
-    assert again["force_hint_level"] == 2
+    assert first["force_hint_level"] == 1
+    assert "should_hint" not in again
 
 
 def test_auto_hint_needs_longer_idle_than_status_warning(session, student):
@@ -255,66 +223,22 @@ def test_auto_hint_needs_longer_idle_than_status_warning(session, student):
     assert "should_hint" not in actions
 
 
-def test_idle_hint_just_inside_cooldown_is_suppressed(session, student):
+def test_auto_hint_threshold_uses_session_override(session, student):
     start_work(student)
-    student.last_pause_hint_at = now_ts() - (PAUSE_HINT_COOLDOWN_SECONDS - 5)
-    actions = process_telemetry(session, student_id(session, "student0"), make_event("idle", idle_seconds=300))
-    assert "should_hint" not in actions
+    session.pause_threshold_seconds = 120
+    before = process_telemetry(session, student_id(session, "student0"), make_event("idle", idle_seconds=119))
+    at = process_telemetry(session, student_id(session, "student0"), make_event("idle", idle_seconds=120))
+    assert "should_hint" not in before
+    assert at["force_hint_level"] == 1
 
 
-def test_no_automatic_hint_after_level_three(session, student):
-    """Hard cap: once Level 3 was given, idle never re-proposes a hint every 45 s."""
+def test_auto_hint_threshold_floor_is_30_seconds(session, student):
     start_work(student)
-    student.hint_level = 3
-    ai_engine._remember_hint_delivery(student, now=0.0)
-    student.set_code("changed")
-    for _ in range(3):
-        student.last_pause_hint_at = 0
-        actions = process_telemetry(session, student_id(session, "student0"), make_event("idle", idle_seconds=999))
-        assert "should_hint" not in actions
-        assert "force_hint_level" not in actions
-
-
-# ── _pause_interval_for_next_hint ─────────────────────────────────
-
-
-@pytest.mark.parametrize("level,base", [("easy", 60), ("medium", 90), ("hard", 120)])
-@pytest.mark.parametrize("hint_level,multiplier", [(0, 1.0), (1, 1.5), (2, 2.0), (3, 2.0), (7, 2.0)])
-def test_pause_interval_multipliers(level, base, hint_level, multiplier):
-    session = make_session(1, task_level=level)
-    assert session.pause_threshold_seconds == base
-    s = session.student_by_name("student0")
-    s.hint_level = hint_level
-    assert _pause_interval_for_next_hint(session, s) == int(base * multiplier)
-
-
-def test_pause_interval_has_30s_floor():
-    session = make_session(1)
-    session.pause_threshold_seconds = 5
-    assert _pause_interval_for_next_hint(session, session.student_by_name("student0")) == 30
-
-
-def test_pause_interval_falls_back_to_idle_warning_without_attribute():
-    class Bare:
-        pass
-
-    s = StudentState("x")
-    assert _pause_interval_for_next_hint(Bare(), s) == IDLE_WARNING_SECONDS
-
-
-def test_critical_idle_threshold_scales_with_hint_level(session, student):
-    """After one hint (level 1) the next idle hint needs 1.5x the base pause (135s on medium),
-    and only once the code has changed since that hint."""
-    start_work(student)
-    student.hint_level = 1
-    student.set_code("x = 1")
-    ai_engine._remember_hint_delivery(student, now=0.0)
-    student.set_code("x = 1\ny = 2")
-    actions = process_telemetry(session, student_id(session, "student0"), make_event("idle", idle_seconds=134))
-    assert "should_hint" not in actions
-    actions = process_telemetry(session, student_id(session, "student0"), make_event("idle", idle_seconds=135))
-    assert actions["should_hint"] is True
-    assert actions["force_hint_level"] == 2
+    session.pause_threshold_seconds = 10
+    before = process_telemetry(session, student_id(session, "student0"), make_event("idle", idle_seconds=29))
+    at = process_telemetry(session, student_id(session, "student0"), make_event("idle", idle_seconds=30))
+    assert "should_hint" not in before
+    assert at["force_hint_level"] == 1
 
 
 # ── paste / large-paste observation ───────────────────────────────
@@ -375,7 +299,7 @@ def test_help_requests_hint_and_records_message(session, student):
     assert actions["hint_reason"] == "help_request"
     assert actions["help_message"] == "stuck on loops"
     assert student.help_requests == ["stuck on loops"]
-    assert student.frustration_score == pytest.approx(0.25)
+    assert student.frustration_score == 0.0
 
 
 def test_help_stores_current_answer_as_code(session, student):
@@ -389,10 +313,10 @@ def test_help_ignores_blank_current_answer(session, student):
     assert student.current_code == "keep"
 
 
-def test_help_frustration_caps_at_one(session, student):
+def test_help_requests_do_not_accumulate_frustration(session, student):
     for _ in range(5):
         process_telemetry(session, student_id(session, "student0"), make_event("help", message="?"))
-    assert student.frustration_score == 1.0
+    assert student.frustration_score == 0.0
 
 
 # ── code_update ───────────────────────────────────────────────────
@@ -527,17 +451,19 @@ def test_telemetry_never_infers_a_quiz_score(session, student):
 def _status(idle=0.0, frustration=0.0, hints=0, support_ago=None,
             typed_since_support=False, pastes=(), paste_age=0.0):
     now = now_ts()
-    s = StudentState("x")
+    session = make_session(1)
+    s = session.student_by_name("student0")
     s.hints_given = hints
     s.idle_seconds = idle
     s.frustration_score = frustration
     s.last_keypress_at = now - 1
     if support_ago is not None:
         s.last_support_at = now - support_ago
-        if not typed_since_support:
-            s.last_keypress_at = s.last_support_at - 1
+        s.last_help_at = now - support_ago
+        if typed_since_support:
+            s.last_help_at = 0
     s.paste_events = [{"length": p, "timestamp": now - paste_age} for p in pastes]
-    _update_status(s, now)
+    _update_status(s, session, now)
     return s.status
 
 
@@ -553,7 +479,7 @@ def test_status_ignores_large_pastes(pastes):
 
 
 def test_status_large_paste_does_not_mask_real_signals():
-    assert _status(pastes=(500,), idle=IDLE_CRITICAL_SECONDS) == "red"
+    assert _status(pastes=(500,), idle=180) == "red"
 
 
 @pytest.mark.parametrize("hints", [1, 2, 5])
@@ -571,32 +497,31 @@ def test_status_clears_once_the_student_types_again():
 
 
 def test_status_unresolved_support_expires_after_recovery_window():
-    assert _status(support_ago=SUPPORT_RECOVERY_SECONDS + 1) == "green"
+    assert _status(support_ago=181) == "green"
 
 
 def test_status_red_when_still_idle_after_support():
-    assert _status(support_ago=10, idle=IDLE_WARNING_SECONDS - 1) == "yellow"
-    assert _status(support_ago=10, idle=IDLE_WARNING_SECONDS) == "red"
+    assert _status(support_ago=10, idle=89) == "yellow"
+    assert _status(support_ago=10, idle=90) == "red"
 
 
 def test_status_idle_boundaries():
-    assert _status(idle=IDLE_WARNING_SECONDS - 1) == "green"
-    assert _status(idle=IDLE_WARNING_SECONDS) == "yellow"
-    assert _status(idle=IDLE_CRITICAL_SECONDS - 1) == "yellow"
-    assert _status(idle=IDLE_CRITICAL_SECONDS) == "red"
+    assert _status(idle=89) == "green"
+    assert _status(idle=90) == "yellow"
+    assert _status(idle=179) == "yellow"
+    assert _status(idle=180) == "red"
 
 
 def test_status_frustration_alone_stays_green():
     assert _status(frustration=1.0) == "green"
 
 
-def test_status_uses_global_idle_constants_not_session_threshold():
-    """A hard-level session (pause 120s) and an easy one (60s) share the same status cut-offs."""
-    for level in ("easy", "medium", "hard"):
+def test_status_uses_session_pause_threshold():
+    for level, threshold in (("easy", 90), ("medium", 90), ("hard", 120)):
         session = make_session(1, task_level=level)
         s = session.student_by_name("student0")
         start_work(s)
-        process_telemetry(session, student_id(session, "student0"), make_event("idle", idle_seconds=119))
+        process_telemetry(session, student_id(session, "student0"), make_event("idle", idle_seconds=threshold))
         assert s.status == "yellow", level
 
 
@@ -604,13 +529,14 @@ def test_status_recovers_when_a_student_resumes_after_asking_for_help(session, s
     start_work(student)
     process_telemetry(session, student_id(session, "student0"), make_event("help", message="stuck"))
     assert student.status == "yellow"
-    process_telemetry(session, student_id(session, "student0"), make_event("keystroke"))
+    for _ in range(20):
+        process_telemetry(session, student_id(session, "student0"), make_event("keystroke"))
     assert student.status == "green"
 
 
 def test_status_recovers_when_a_student_resumes_after_going_idle(session, student):
     start_work(student)
-    process_telemetry(session, student_id(session, "student0"), make_event("idle", idle_seconds=IDLE_CRITICAL_SECONDS))
+    process_telemetry(session, student_id(session, "student0"), make_event("idle", idle_seconds=180))
     assert student.status == "red"
     process_telemetry(session, student_id(session, "student0"), make_event("keystroke"))
     assert student.status == "green"
@@ -752,7 +678,9 @@ def test_module_constants_are_as_documented():
     assert telemetry.BACKSPACE_RATE_THRESHOLD == 0.35
     assert telemetry.CONFUSION_SPIKE_MIN_STUDENTS == 3
     assert telemetry.CONFUSION_SPIKE_RATIO == 0.5
-    assert telemetry.PAUSE_HINT_COOLDOWN_SECONDS == 45
+    assert telemetry.HELP_ATTENTION_WINDOW_SECONDS == 180
+    assert telemetry.RECOVERY_KEYSTROKES == 20
+    assert telemetry.LEFT_ROOM_AFTER_SECONDS == 600
 
 
 # ── status = "needs attention now": recovery in every path ─────────────
@@ -761,7 +689,7 @@ def test_module_constants_are_as_documented():
 def _stall(session, student):
     """Drive a student to red via a long idle."""
     start_work(student)
-    process_telemetry(session, student_id(session, "student0"), make_event("idle", idle_seconds=IDLE_CRITICAL_SECONDS + 5))
+    process_telemetry(session, student_id(session, "student0"), make_event("idle", idle_seconds=180))
     assert student.status == "red"
 
 
@@ -792,7 +720,7 @@ def test_status_recovers_after_three_hints(session, student):
     student.hint_level = 3
     student.hints_given = 3
     student.last_support_at = now_ts()
-    _update_status(student)
+    _update_status(student, session)
     assert student.status in ("yellow", "red")
     process_telemetry(session, student_id(session, "student0"), make_event("keystroke", count=1))
     assert student.status == "green"
@@ -816,8 +744,9 @@ def test_help_request_never_lowers_scores_or_locks_status(session, student):
     process_telemetry(session, student_id(session, "student0"), make_event("help", message="stuck on loops"))
     assert student.quiz_score == 100
     assert student.progress == 40.0
-    assert student.frustration_score >= frustration_before
+    assert student.frustration_score == frustration_before
     assert student.status == "yellow"  # attention needed *now*
-    process_telemetry(session, student_id(session, "student0"), make_event("keystroke", count=1))
+    for _ in range(20):
+        process_telemetry(session, student_id(session, "student0"), make_event("keystroke", count=1))
     assert student.status == "green"
     assert student.quiz_score == 100

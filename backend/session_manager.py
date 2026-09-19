@@ -207,9 +207,10 @@ def delete_session(session_id: str) -> bool:
 
 # ── Public API ─────────────────────────────────────────────────────
 
-def create_session(task_description: str, task_level: str = "medium") -> tuple[SessionState, str]:
+def create_session(task_description: str, task_level: str = "medium", pause_threshold_seconds: int | None = None) -> tuple[SessionState, str]:
     """Create a session and return it with the raw teacher token (only the hash is kept)."""
-    session = SessionState(task_description=task_description, task_level=task_level)
+    session = SessionState(task_description=task_description, task_level=task_level,
+                           pause_threshold_seconds=pause_threshold_seconds)
     teacher_token = new_token()
     session.teacher_token_hash = hash_token(teacher_token)
     with _lock:
