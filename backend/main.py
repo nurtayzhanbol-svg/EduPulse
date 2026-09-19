@@ -24,6 +24,7 @@ import session_manager
 from auth import bearer_token, require_student, require_teacher, token_matches
 from telemetry import is_duplicate_confusion_spike, process_telemetry, refresh_status
 from ai_engine import (
+    gate_hint,
     generate_hint,
     generate_quiz,
     analyze_pdf_content,
@@ -142,6 +143,7 @@ async def _extract_uploaded_pdf(file: UploadFile) -> dict:
 
 
 def _build_session_analytics(session) -> dict:
+    _normalize_quiz_results(session)
     students = list(session.students.values())
     total_students = len(students)
     if total_students == 0:
@@ -201,6 +203,7 @@ def _build_session_analytics(session) -> dict:
 
 
 def _build_report_payload(session) -> dict:
+    quiz_results = _normalize_quiz_results(session)
     analytics = getattr(session, "analytics", None) or _build_session_analytics(session)
     students = list(session.students.values())
 
@@ -268,6 +271,16 @@ def _build_report_payload(session) -> dict:
         }
         for s in sorted(students, key=lambda s: (s.quiz_score is None, -(s.quiz_score or 0), s.name))
     ]
+    quiz_rows = [
+        {
+            "student_id": student_id,
+            "student_name": entry.get("student_name", student_id),
+            "score": entry.get("score"),
+            "correct": entry.get("correct"),
+            "total": entry.get("total"),
+        }
+        for student_id, entry in quiz_results.items()
+    ]
 
     return {
         "session_id": session.session_id,
@@ -285,6 +298,7 @@ def _build_report_payload(session) -> dict:
         },
         "hardest_topics": hardest_topics,
         "students": students_table,
+        "quiz_results": quiz_rows,
     }
 
 
@@ -339,7 +353,9 @@ async def create_session_from_pdf(
     session.quiz_difficulty_preference = normalized_quiz_difficulty
     session.pdf_text = result["text"]
     session.pdf_filename = file.filename
-    session.pdf_analysis = await analyze_pdf_content(result["text"], generated_task_description)
+    session.pdf_analysis = await analyze_pdf_content(
+        result["text"], generated_task_description, session_id=session.session_id,
+    )
     session_manager.persist_session(session)
 
     return {
@@ -487,7 +503,7 @@ async def upload_pdf(session_id: str, request: Request, file: UploadFile = File(
     session.pdf_filename = file.filename
 
     # Generate AI analysis
-    analysis = await analyze_pdf_content(result["text"], session.task_description)
+    analysis = await analyze_pdf_content(result["text"], session.task_description, session_id=session_id)
     session.pdf_analysis = analysis
     session_manager.persist_session(session)
 
@@ -500,6 +516,39 @@ async def upload_pdf(session_id: str, request: Request, file: UploadFile = File(
 
 
 # ── Quiz Generation & Submission ──────────────────────────────────
+
+def _normalize_quiz_results(session) -> dict:
+    """Make ``session.quiz_results`` a dict keyed by student_id.
+
+    Sessions persisted before results were id-keyed may hold entries keyed by display
+    name (and possibly no ``quiz_results`` at all). Those are re-keyed to the matching
+    student's id when the name is still unique; anything unmatched is kept as-is under
+    its original key so old data is never dropped or crashes the request.
+    """
+    results = getattr(session, "quiz_results", None)
+    if not isinstance(results, dict):
+        results = {}
+    normalized: dict[str, dict] = {}
+    for key, entry in results.items():
+        entry = dict(entry) if isinstance(entry, dict) else {"score": entry}
+        student = session.students.get(key)
+        if student is None:
+            same_name = [s for s in session.students.values() if s.name == key]
+            if len(same_name) == 1 and same_name[0].student_id not in results:
+                student = same_name[0]
+        if student is None:
+            entry.setdefault("student_name", str(key))
+            normalized[str(key)] = entry
+            continue
+        entry.setdefault("student_name", student.name)
+        normalized[student.student_id] = entry
+        if student.quiz_score is None and isinstance(entry.get("score"), (int, float)):
+            student.quiz_score = float(entry["score"])
+            student.quiz_correct = int(entry.get("correct", 0) or 0)
+            student.quiz_total = int(entry.get("total", 0) or 0)
+    session.quiz_results = normalized
+    return normalized
+
 
 @app.post("/api/sessions/{session_id}/generate-quiz")
 async def api_generate_quiz(
@@ -536,6 +585,7 @@ async def api_generate_quiz(
         num_questions=num_questions,
         difficulty=selected_difficulty,
         mode=selected_mode,
+        session_id=session_id,
     )
     if not questions:
         raise HTTPException(
@@ -576,7 +626,8 @@ async def submit_quiz(session_id: str, submission: dict, request: Request):
 
     if not quiz:
         raise HTTPException(400, "No quiz available")
-    if student_id in getattr(session, "quiz_results", {}):
+    _normalize_quiz_results(session)
+    if student_id in session.quiz_results:
         raise HTTPException(409, "You have already submitted this quiz.")
 
     # Grade the quiz
@@ -598,9 +649,7 @@ async def submit_quiz(session_id: str, submission: dict, request: Request):
 
     score = round((correct / total) * 100) if total > 0 else 0
 
-    # Store results
-    if not hasattr(session, "quiz_results"):
-        session.quiz_results = {}
+    # Store results, keyed by the stable student_id; the name is only a label.
     student = session.students[student_id]
     session.quiz_results[student_id] = {
         "student_name": student.name,
@@ -743,7 +792,19 @@ async def telemetry(sid, data):
     # Generate and send hint if needed
     if actions.get("should_hint"):
         student = session.students.get(student_id)
-        if student:
+        hint_reason = actions.get("hint_reason", "idle")
+        gate = gate_hint(student, hint_reason) if student else None
+        if gate is not None and not gate.allowed:
+            print(f"[Hints] {hint_reason} for '{student.name}' withheld: {gate.reason}")
+            if gate.message:
+                # Explicit request: answer without spending an LLM call so the student is not left waiting.
+                await sio.emit("hint", {
+                    "student_id": student_id,
+                    "hint": gate.message,
+                    "level": student.hint_level,
+                    "withheld": gate.reason,
+                }, to=student.sid or sid)
+        elif student:
             if not student.sid:
                 student.sid = sid
 
@@ -756,10 +817,11 @@ async def telemetry(sid, data):
             hint_text = await generate_hint(
                 student=student,
                 task_description=session.task_description,
-                hint_reason=actions.get("hint_reason", "idle"),
+                hint_reason=hint_reason,
                 help_message=actions.get("help_message", ""),
                 class_material=material_context,
                 force_level=actions.get("force_hint_level"),
+                session_id=session_id,
             )
             await sio.emit("hint", {
                 "student_id": student_id,
