@@ -2094,7 +2094,9 @@
                 ? null : Math.round(Number(analytics.quiz_avg_correct_pct));
             const totalHints = Number(analytics.total_hints || 0);
             const helpRequests = Number(analytics.help_request_count || 0);
+            const confirmedPastes = Number(analytics.total_large_pastes || 0);
             document.getElementById('reportGrid').innerHTML = `
+        <div class="report-stat"><div class="report-val">${confirmedPastes}</div><div class="report-lbl">Confirmed large pastes</div></div>
         <div class="report-stat"><div class="report-val" style="color:var(--teal);font-size:${quizAccuracy === null ? '.9rem' : ''}">${quizAccuracy === null ? 'No evidence yet' : quizAccuracy + '%'}</div><div class="report-lbl">Quiz Accuracy</div></div>
         <div class="report-stat"><div class="report-val">${totalStudents}</div><div class="report-lbl">Students</div></div>
         <div class="report-stat"><div class="report-val" style="color:var(--teal)">${totalHints}</div><div class="report-lbl">AI Hints Sent</div></div>

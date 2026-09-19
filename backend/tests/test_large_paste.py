@@ -149,3 +149,21 @@ def test_teacher_ui_paste_alert_is_dismissable_and_confirmable():
     assert 'aria-label="Dismiss alert"' in html
     for banned in ("plagiarism", "cheating", "High risk"):
         assert banned.lower() not in html.lower(), banned
+
+
+@pytest.mark.asyncio
+async def test_public_session_endpoint_does_not_expose_paste_alerts():
+    import httpx
+
+    session, teacher_token = session_manager.create_session("Sum a list", "easy")
+    alice, _ = session_manager.join_session(session.session_id, "Alice")
+    session.alerts.append({"type": "large_paste", "student_name": "Alice", "paste_length": 500, "message": "x"})
+    transport = httpx.ASGITransport(app=main.app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        r = await client.get(f"/api/sessions/{session.session_id}")
+        assert r.status_code == 200
+        assert r.json()["alerts"] == []
+        assert "large_paste" not in r.text
+        r = await client.get(f"/api/sessions/{session.session_id}",
+                             headers={"Authorization": f"Bearer {teacher_token}"})
+        assert r.json()["alerts"][0]["type"] == "large_paste"
