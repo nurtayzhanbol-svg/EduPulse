@@ -1154,6 +1154,7 @@
         let hintInFlight = false;
         let hintTimeout = null;
         let sessionOver = false;
+        let quizSubmitted = false;
 
         // Telemetry state
         let keystrokeCount = 0, pasteCount = 0, idleSeconds = 0, hintLevel = 0;
@@ -1441,6 +1442,7 @@
 
             // Quiz available
             socket.on('quiz_available', (data) => {
+                if (quizSubmitted) return;
                 showQuiz(data.questions || []);
             });
 
@@ -1757,6 +1759,7 @@
                 });
                 if (!res.ok) throw new Error(await parseApiError(res));
                 const data = await res.json();
+                quizSubmitted = true;
 
                 const fb = document.getElementById('quizFeedback');
                 if (fb) {
