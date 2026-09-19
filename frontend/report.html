@@ -22,7 +22,8 @@ body{font-family:'Source Sans 3',sans-serif;background:var(--cream);color:var(--
 .logo-mark{width:32px;height:32px;background:#2c3e6b;border-radius:8px;display:flex;align-items:center;justify-content:center}
 .logo-text{font-family:'Playfair Display',serif;font-size:1.15rem;font-weight:700;color:var(--navy)}
 .logo-text em{color:var(--teal);font-style:normal}
-.btn{padding:8px 14px;border-radius:8px;border:1px solid var(--border);color:var(--text-mid);text-decoration:none;font-size:.85rem}
+.btn{padding:8px 14px;border-radius:8px;border:1px solid var(--border);color:var(--text-mid);text-decoration:none;font-size:.85rem;background:transparent;cursor:pointer;font:inherit}
+:focus-visible{outline:2px solid var(--teal);outline-offset:2px}
 .page{max-width:1180px;margin:0 auto;padding:84px 1.25rem 2rem}
 .header{display:flex;justify-content:space-between;gap:1rem;align-items:flex-start;flex-wrap:wrap;margin-bottom:1.25rem}
 .title{font-family:'Playfair Display',serif;font-size:2rem;color:var(--navy);margin:.25rem 0}
@@ -30,6 +31,7 @@ body{font-family:'Source Sans 3',sans-serif;background:var(--cream);color:var(--
 .kpi-row{display:grid;grid-template-columns:repeat(5,1fr);gap:.8rem;margin:1rem 0}
 @media(max-width:900px){.kpi-row{grid-template-columns:repeat(3,1fr)}}
 @media(max-width:580px){.kpi-row{grid-template-columns:repeat(2,1fr)}}
+@media(max-width:480px){.kpi-row{grid-template-columns:1fr 1fr}.u-label{width:110px}.title{font-size:1.5rem}.page{padding:80px .9rem 1.5rem}}
 .kpi{background:var(--ivory);border:1px solid var(--border);border-radius:12px;padding:1rem;box-shadow:var(--shadow)}
 .kpi-label{font-size:.66rem;letter-spacing:.08em;text-transform:uppercase;color:var(--text-dim)}
 .kpi-val{font-family:'Playfair Display',serif;font-size:1.7rem;font-weight:900;line-height:1.1;margin:.35rem 0;color:var(--text)}
@@ -62,6 +64,7 @@ body{font-family:'Source Sans 3',sans-serif;background:var(--cream);color:var(--
 .topic-fill{height:100%;background:linear-gradient(90deg,var(--amber),var(--red))}
 .topic-pct{width:40px;text-align:right;font-size:.75rem;color:var(--text-dim)}
 .error{background:rgba(255,119,119,.12);border:1px solid rgba(255,119,119,.3);border-radius:10px;padding:1rem;color:var(--red)}
+.empty-state{background:var(--ivory);border:1px solid var(--border);border-radius:13px;padding:2.5rem 1.5rem;text-align:center;box-shadow:var(--shadow);grid-column:1/-1}.empty-state h2{font-family:'Playfair Display',serif;color:var(--navy);font-size:1.25rem;margin:.7rem 0 .4rem}.empty-state p{color:var(--text-mid);font-size:.85rem;line-height:1.6;max-width:480px;margin:0 auto 1rem}.spinner{display:inline-flex;width:14px;height:14px;border:2px solid currentColor;border-right-color:transparent;border-radius:50%;animation:spin .7s linear infinite;vertical-align:-2px}@keyframes spin{to{transform:rotate(360deg)}}
 </style>
 </head>
 <body>
@@ -74,14 +77,14 @@ body{font-family:'Source Sans 3',sans-serif;background:var(--cream);color:var(--
     <a class="btn" href="teacher.html">Back to Dashboard</a>
   </div>
 </nav>
-<main class="page">
+<main class="page" aria-busy="true">
   <div class="header">
     <div>
       <div style="font-size:.75rem;color:var(--teal);letter-spacing:.08em;text-transform:uppercase;font-weight:700">Session Complete</div>
       <h1 class="title">Session Report</h1>
       <div class="meta" id="meta"></div>
     </div>
-    <button class="btn" onclick="window.print()">Export PDF</button>
+    <button type="button" class="btn" onclick="window.print()">Export PDF</button>
   </div>
 
   <div class="kpi-row">
@@ -98,7 +101,7 @@ body{font-family:'Source Sans 3',sans-serif;background:var(--cream);color:var(--
     <div class="fb"><div class="fb-val" style="color:var(--red)" id="fbStruggling">0</div><div class="fb-title">Struggling</div><div class="fb-desc">5+ hints or high struggle.</div></div>
   </div>
 
-  <div class="insight" id="insightBox">Loading AI feedback…</div>
+  <div class="insight" id="insightBox"><span class="spinner"></span> Loading report…</div>
 
   <div class="grid" style="margin-top:.9rem">
     <div class="card">
@@ -119,7 +122,7 @@ body{font-family:'Source Sans 3',sans-serif;background:var(--cream);color:var(--
     </div>
   </div>
 
-  <div id="errorBox" class="error" style="display:none;margin-top:1rem"></div>
+  <div id="errorBox" role="alert" class="error" style="display:none;margin-top:1rem"></div>
 </main>
 <script>
 const API = '';
@@ -155,7 +158,7 @@ function setFeedbackCards(report){
 function setInsight(report){
   const ins = (report.analytics && Array.isArray(report.analytics.insights)) ? report.analytics.insights : [];
   const first = ins.length ? ins[0] : (report.summary || 'No summary available.');
-  byId('insightBox').innerHTML = first;
+  byId('insightBox').textContent = first;
 }
 
 function setBreakdown(report){
@@ -181,11 +184,14 @@ function setTimeline(report){
   barsEl.innerHTML = '';
   axisEl.innerHTML = '';
   const maxV = Math.max(1, ...data);
-  data.forEach((v) => {
+  if (!data.length || data.every(v => Number(v) === 0)) { barsEl.textContent = 'No confusion events.'; axisEl.textContent = ''; return; }
+  barsEl.setAttribute('role','img'); barsEl.setAttribute('aria-label','Confusion events over time');
+  data.forEach((v, i) => {
     const pct = Math.max(4, Math.round((v / maxV) * 100));
     const col = v <= 1 ? 'var(--teal)' : (v <= 4 ? 'var(--amber)' : 'var(--red)');
     const d = document.createElement('div');
     d.className = 'tbar';
+    d.title = `${v} confusion events at ${labels[i] || 0}m`; d.setAttribute('aria-label', d.title);
     d.style.height = `${pct}%`;
     d.style.background = col;
     barsEl.appendChild(d);
@@ -201,6 +207,7 @@ function setTopics(report){
   const topics = Array.isArray(report.hardest_topics) ? report.hardest_topics : [];
   const body = byId('topicsBody');
   body.innerHTML = '';
+  if (!topics.length) { body.textContent = 'No confusion signals recorded.'; return; }
   topics.forEach((t) => {
     const row = document.createElement('div');
     row.className = 'topic-row';
@@ -213,14 +220,13 @@ function setTopics(report){
   });
 }
 
+function hideReportSections(){ document.querySelector('.kpi-row').style.display='none'; document.querySelector('.fb-grid').style.display='none'; document.querySelector('.grid').style.display='none'; }
+function showEmptyState(report){ const a=report.analytics||{}; const c=report.counts||{}; const noActivity=Number(a.total_students||0)===0 && Number(a.total_hints||0)===0 && Object.values(c).every(v=>Number(v||0)===0); if(!noActivity)return; document.querySelector('.fb-grid').innerHTML='<div class="empty-state"><svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="var(--teal)" stroke-width="1.5"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg><h2>No activity was recorded in this session</h2><p>No students joined or no work was submitted, so there is nothing to analyse. Start a new session from the dashboard.</p><a class="btn" href="teacher.html">Back to Dashboard</a></div>'; document.querySelector('.grid').innerHTML=''; }
+
 async function init(){
   const params = new URLSearchParams(window.location.search);
   const sid = (params.get('session') || '').trim();
-  if (!sid) {
-    byId('errorBox').style.display = 'block';
-    byId('errorBox').textContent = 'Missing session id in URL.';
-    return;
-  }
+  if (!sid) { byId('errorBox').style.display = 'block'; byId('errorBox').textContent = 'Missing session id in URL. '; const a=document.createElement('a'); a.href='teacher.html'; a.className='btn'; a.textContent='Back to Dashboard'; byId('errorBox').appendChild(a); hideReportSections(); byId('insightBox').textContent=''; document.querySelector('.page').setAttribute('aria-busy','false'); return; }
   try {
     const res = await fetch(`${API}/api/sessions/${encodeURIComponent(sid)}/report`);
     const report = await res.json();
@@ -231,10 +237,10 @@ async function init(){
     setInsight(report);
     setBreakdown(report);
     setTimeline(report);
-    setTopics(report);
+    setTopics(report); showEmptyState(report);
+    document.querySelector('.page').setAttribute('aria-busy','false');
   } catch (e) {
-    byId('errorBox').style.display = 'block';
-    byId('errorBox').textContent = e.message || String(e);
+    byId('errorBox').style.display = 'block'; byId('errorBox').textContent = e.message || String(e) + ' '; const a=document.createElement('a'); a.href='teacher.html'; a.className='btn'; a.textContent='Back to Dashboard'; byId('errorBox').appendChild(a); hideReportSections(); document.querySelector('.page').setAttribute('aria-busy','false');
   }
 }
 

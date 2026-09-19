@@ -260,6 +260,17 @@
             color: var(--red)
         }
 
+        .conn-bar.reconnecting {
+            background: var(--amber-pale);
+            border: 1px solid rgba(201, 112, 16, .25);
+            color: var(--amber)
+        }
+
+        .conn-state-icon { font-size: .9rem; line-height: 1; }
+        .live-chip.reconnecting { background: var(--amber-pale); border-color: rgba(201,112,16,.25); color: var(--amber); }
+        .live-chip.error { background: var(--red-pale); border-color: rgba(184,50,50,.25); color: var(--red); }
+        .live-chip.connected { background: var(--teal-pale); border-color: rgba(26,122,110,.22); color: var(--teal); }
+
         .conn-dot {
             width: 8px;
             height: 8px;
@@ -335,6 +346,13 @@
         .form-input:focus {
             border-color: var(--teal)
         }
+
+        .form-input:focus-visible { outline: 2px solid var(--teal); outline-offset: 2px; }
+        :focus-visible { outline: 2px solid var(--teal); outline-offset: 2px; }
+        button, a, input, textarea, [tabindex] { outline-offset: 2px; }
+        button.opt-chip { font: inherit; width: 100%; color: inherit; }
+        .spinner { display: inline-flex; width: 14px; height: 14px; border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%; animation: spin .7s linear infinite; }
+        @keyframes spin { to { transform: rotate(360deg); } }
 
         /* SEGMENTED CONTROL / TOGGLE CHIPS */
         .option-group {
@@ -616,7 +634,7 @@
         /* STUDENT GRID */
         .student-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(288px, 1fr));
+            grid-template-columns: repeat(auto-fill, minmax(min(288px, 100%), 1fr));
             gap: 1.25rem;
             margin-bottom: 2rem
         }
@@ -1137,10 +1155,27 @@
             transition: width .45s ease
         }
 
+        .sm-metrics { display: grid; grid-template-columns: repeat(4, 1fr); gap: .8rem; margin: 1.5rem 0; }
         .modal-actions {
             display: flex;
             gap: 9px;
             justify-content: flex-end
+        }
+
+        .join-link-inner { display:flex; align-items:center; gap:12px; flex-wrap:wrap; }
+        .join-link-inner code { flex:1; min-width:0; overflow-wrap:anywhere; }
+        .alert-close { font: inherit; }
+        @media (max-width: 768px) {
+            .main { padding: 72px 1rem 2rem; }
+            .nav { padding: 0 1rem; }
+            #setupPanel { padding: 1.5rem; margin: 1.5rem auto; }
+            .modal { padding: 1.25rem; }
+            .join-link-inner { align-items: stretch; }
+        }
+        @media (max-width: 600px) { .sm-metrics { grid-template-columns: repeat(2, 1fr) !important; } }
+        @media (max-width: 480px) {
+            .metrics-row, .report-grid { grid-template-columns: 1fr; }
+            .nav-session-name { display:none; }
         }
     </style>
 </head>
@@ -1167,6 +1202,7 @@
                 <div class="live-chip" id="liveChip" style="display:none">
                     <div class="live-dot"></div>LIVE
                 </div>
+                <div class="live-chip" id="navConn" style="display:none"><span class="conn-state-icon">●</span><span id="navConnText">Connected · Live</span></div>
                 <button class="btn btn-red" id="endBtn" style="display:none" onclick="openEndModal()">End
                     Session</button>
             </div>
@@ -1175,8 +1211,8 @@
 
     <!-- JS rewritten below -->
     <div class="main">
-        <div class="conn-bar connecting" id="connBar" style="display:none">
-            <div class="conn-dot"></div>
+        <div class="conn-bar connecting" id="connBar" role="status" aria-live="polite" style="display:none">
+            <span class="conn-state-icon" id="connIcon">●</span>
             <span id="connText">Initialising…</span>
         </div>
 
@@ -1185,10 +1221,10 @@
             <div class="setup-heading">Start a New Session</div>
             <div class="setup-sub">Upload your class PDF, choose question mode and level, then launch. Students will
                 join using the generated link — no account required.</div>
-            <label class="form-label">Course Name</label>
+            <label class="form-label" for="courseName">Course Name</label>
             <input class="form-input" id="courseName" placeholder="e.g. Introduction to Python" />
 
-            <label class="form-label">Class PDF (required)</label>
+            <label class="form-label" for="createPdfInput">Class PDF (required)</label>
             <div class="file-upload-area" id="dropZone">
                 <input class="file-upload-input" id="createPdfInput" type="file" accept=".pdf"
                     onchange="handleFileSelect(this)" />
@@ -1196,29 +1232,29 @@
                 <span class="file-upload-text" id="fileNameDisplay">Click or drag PDF here</span>
                 <span class="file-upload-sub">Maximum size: 10MB</span>
             </div>
-            <label class="form-label">Question Mode</label>
-            <div class="option-group" id="modeToggle">
-                <div class="opt-chip active" data-value="practical" onclick="selectOption('mode', this)">
+            <label class="form-label" id="modeLabel">Question Mode</label>
+            <div class="option-group" id="modeToggle" role="radiogroup" aria-labelledby="modeLabel">
+                <div class="opt-chip active" role="radio" aria-checked="true" tabindex="0" data-value="practical" onclick="selectOption('mode', this)">
                     <span class="opt-icon">⚙️</span>
                     <span class="opt-label">Practical</span>
                 </div>
-                <div class="opt-chip" data-value="theoretical" onclick="selectOption('mode', this)">
+                <div class="opt-chip" role="radio" aria-checked="false" tabindex="0" data-value="theoretical" onclick="selectOption('mode', this)">
                     <span class="opt-icon">📖</span>
                     <span class="opt-label">Theory</span>
                 </div>
             </div>
 
-            <label class="form-label">Difficulty Level</label>
-            <div class="option-group" id="difficultyToggle">
-                <div class="opt-chip active" data-value="easy" onclick="selectOption('difficulty', this)">
+            <label class="form-label" id="difficultyLabel">Difficulty Level</label>
+            <div class="option-group" id="difficultyToggle" role="radiogroup" aria-labelledby="difficultyLabel">
+                <div class="opt-chip active" role="radio" aria-checked="true" tabindex="0" data-value="easy" onclick="selectOption('difficulty', this)">
                     <span class="opt-icon">🟢</span>
                     <span class="opt-label">Easy</span>
                 </div>
-                <div class="opt-chip" data-value="medium" onclick="selectOption('difficulty', this)">
+                <div class="opt-chip" role="radio" aria-checked="false" tabindex="0" data-value="medium" onclick="selectOption('difficulty', this)">
                     <span class="opt-icon">🟡</span>
                     <span class="opt-label">Medium</span>
                 </div>
-                <div class="opt-chip" data-value="hard" onclick="selectOption('difficulty', this)">
+                <div class="opt-chip" role="radio" aria-checked="false" tabindex="0" data-value="hard" onclick="selectOption('difficulty', this)">
                     <span class="opt-icon">🔴</span>
                     <span class="opt-label">Hard</span>
                 </div>
@@ -1239,8 +1275,9 @@
                     <span style="font-size:.85rem;color:var(--text-mid);">Share with students:</span>
                     <code id="joinLinkText"
                         style="flex:1;font-size:.85rem;color:var(--teal);word-break:break-all;font-weight:600"></code>
-                    <button class="btn btn-ghost" style="padding:6px 14px;font-size:.78rem"
-                        onclick="copyJoinLink(this)">Copy</button>
+                    <button class="btn btn-ghost" style="padding:6px 14px;font-size:.78rem" aria-label="Copy join link" onclick="copyJoinLink(this)">Copy</button>
+                    <button class="btn btn-ghost" id="quizBtn" style="padding:6px 14px;font-size:.78rem" onclick="sendKnowledgeCheck()">🧠 Send Knowledge Check</button>
+                    <span id="quizStatus" style="font-size:.78rem;min-height:1em" aria-live="polite"></span>
                 </div>
             </div>
             <div id="copyToast" class="copy-toast">Copied</div>
@@ -1303,7 +1340,7 @@
                             <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
                             <path d="M16 3.13a4 4 0 0 1 0 7.75" />
                         </svg></div>
-                    <div class="empty-text">No students have joined yet.<br>Share the join link above.</div>
+                    <div class="empty-text"><strong>No students have joined yet.</strong><br>Share the join link above — students appear here live as soon as they join.<br><button type="button" class="btn btn-ghost" style="margin-top:.8rem" onclick="copyJoinLink(this)">Copy join link</button></div>
                 </div>
             </div>
 
@@ -1321,8 +1358,8 @@
 
     <!-- END SESSION MODAL -->
     <div class="modal-overlay" id="endModal">
-        <div class="modal">
-            <div class="modal-heading">Session Summary</div>
+        <div class="modal" role="dialog" aria-modal="true" aria-labelledby="endModalTitle">
+            <div class="modal-heading" id="endModalTitle">Session Summary</div>
             <div class="modal-sub">Review your session results before closing. In production, this report is exported as
                 a PDF and emailed to you automatically.</div>
             <div class="report-grid" id="reportGrid"></div>
@@ -1339,7 +1376,7 @@
 
     <!-- STUDENT LIVE CODE MODAL -->
     <div class="modal-overlay" id="studentModal">
-        <div class="modal" style="max-width: 650px;">
+        <div class="modal" role="dialog" aria-modal="true" aria-labelledby="smName" style="max-width: 650px;">
             <div class="s-head" style="margin-bottom:0;">
                 <div class="s-info">
                     <div class="avatar" id="smAvatar"
@@ -1353,7 +1390,7 @@
                 <div class="status-badge" id="smStatus"></div>
             </div>
 
-            <div class="metrics-row" style="margin: 1.5rem 0; gap: 0.8rem; grid-template-columns: repeat(4, 1fr);">
+            <div class="sm-metrics">
                 <div class="metric-card" style="padding: 1rem;">
                     <div class="metric-label" style="font-size:0.65rem; margin-bottom:0.4rem;">Understanding</div>
                     <div class="metric-value" id="smScore" style="font-size:1.5rem;"></div>
@@ -1400,8 +1437,9 @@
         function selectOption(group, el) {
             // Find parent group and remove active from all siblings
             const parent = el.parentElement;
-            [...parent.children].forEach(c => c.classList.remove('active'));
+            [...parent.children].forEach(c => { c.classList.remove('active'); c.setAttribute('aria-checked', 'false'); });
             el.classList.add('active');
+            el.setAttribute('aria-checked', 'true');
 
             // Update associated hidden input
             if (group === 'mode') {
@@ -1468,58 +1506,45 @@
         // ── Connection bar ────────────────────────────────────────────
         function setConn(state, txt) {
             const b = document.getElementById('connBar');
-            if (b) {
-                b.style.display = 'flex';
-                b.className = 'conn-bar ' + state;
-                document.getElementById('connText').textContent = txt;
-                const dot = b.querySelector('.conn-dot');
-                if (dot) dot.className = 'conn-dot';
-            }
+            const nav = document.getElementById('navConn');
+            const icons = { connected: '●', reconnecting: '⟳', error: '✕', connecting: '⟳' };
+            const icon = icons[state] || '●';
+            if (b) { b.style.display = 'flex'; b.className = 'conn-bar ' + state; document.getElementById('connText').textContent = txt; document.getElementById('connIcon').textContent = icon; }
+            if (nav) { nav.style.display = 'flex'; nav.className = 'live-chip ' + state; document.getElementById('navConnText').textContent = txt; nav.querySelector('.conn-state-icon').textContent = icon; }
+        }
+
+        async function parseApiError(res) {
+            try {
+                const data = await res.json();
+                const detail = data && data.detail;
+                if (Array.isArray(detail)) return detail.map(item => item.msg || String(item)).join('; ');
+                if (typeof detail === 'string' && detail) return detail;
+                return `HTTP ${res.status}`;
+            } catch (_) { return `HTTP ${res.status}`; }
+        }
+
+        function setCreateBusy(busy) {
+            const btn = document.getElementById('createBtn'); const zone = document.getElementById('dropZone');
+            btn.disabled = busy; zone?.setAttribute('aria-busy', String(busy));
+            document.getElementById('courseName').disabled = busy; document.getElementById('createPdfInput').disabled = busy;
+            btn.innerHTML = busy ? '<span class="spinner"></span> Uploading & Analysing…' : 'Launch Session →';
         }
 
         // ── Start Session (PDF upload) ────────────────────────────────
         async function startSession() {
-            const btn = document.getElementById('createBtn');
             const status = document.getElementById('createStatus');
             const fileInput = document.getElementById('createPdfInput');
             const mode = document.getElementById('createModeInput').value;
             const difficulty = document.getElementById('createDifficultyInput').value;
-
-            if (!fileInput.files.length) {
-                status.textContent = '⚠️ Please select a PDF file.';
-                status.style.color = 'var(--red)';
-                return;
-            }
-
-            btn.disabled = true;
-            btn.textContent = '⏳ Uploading & Analysing…';
-            status.textContent = 'Processing PDF with AI — this may take 10-20 seconds…';
-            status.style.color = 'var(--text-dim)';
-            setConn('connecting', 'Creating session…');
-
-            const formData = new FormData();
-            formData.append('file', fileInput.files[0]);
-            formData.append('task_level', difficulty);
-            formData.append('mode', mode);
-            formData.append('quiz_difficulty', difficulty);
-
+            if (!fileInput.files.length) { status.textContent = '⚠️ Please select a PDF file.'; status.style.color = 'var(--red)'; status.setAttribute('role', 'alert'); return; }
+            setCreateBusy(true); status.textContent = 'Processing PDF with AI — this may take 10-20 seconds…'; status.style.color = 'var(--text-dim)'; status.removeAttribute('role'); setConn('reconnecting', 'Creating session…');
+            const formData = new FormData(); formData.append('file', fileInput.files[0]); formData.append('task_level', difficulty); formData.append('mode', mode); formData.append('quiz_difficulty', difficulty);
             try {
-                const res = await fetch(`${API}/api/sessions/create-from-pdf`, {
-                    method: 'POST',
-                    body: formData,
-                });
-                const data = await res.json();
-                if (!res.ok) throw new Error(data.detail || 'Server error');
-
-                sessionId = data.session_id;
-                showDashboard(data);
-                initSocket(sessionId);
+                const res = await fetch(`${API}/api/sessions/create-from-pdf`, { method: 'POST', body: formData });
+                if (!res.ok) throw new Error(await parseApiError(res));
+                const data = await res.json(); sessionId = data.session_id; showDashboard(data); initSocket(sessionId);
             } catch (e) {
-                status.textContent = '❌ ' + e.message;
-                status.style.color = 'var(--red)';
-                setConn('error', 'Session creation failed — ' + e.message);
-                btn.disabled = false;
-                btn.textContent = 'Launch Session →';
+                status.textContent = e.message === 'Failed to fetch' ? 'Could not reach the server. Check the backend is running.' : '❌ ' + e.message; status.style.color = 'var(--red)'; status.setAttribute('role', 'alert'); setConn('error', 'Disconnected — live updates paused'); setCreateBusy(false);
             }
         }
 
@@ -1532,7 +1557,7 @@
             document.getElementById('navSessionInfo').style.display = 'flex';
             document.getElementById('navSessionId').textContent = 'SESSION ' + sessionId;
             document.getElementById('navSessionName').textContent = name;
-            document.getElementById('liveChip').style.display = 'flex';
+            document.getElementById('liveChip').style.display = 'flex'; document.getElementById('navConn').style.display = 'flex';
             document.getElementById('endBtn').style.display = 'flex';
 
             // Show join link
@@ -1548,12 +1573,14 @@
             socket = io({ transports: ['websocket', 'polling'] });
 
             socket.on('connect', () => {
-                setConn('connected', 'Live · Session ' + sid);
+                setConn('connected', 'Connected · Live');
                 socket.emit('join_room', { session_id: sid, role: 'teacher' });
             });
 
-            socket.on('disconnect', () => setConn('error', 'Disconnected — reconnecting…'));
-            socket.on('connect_error', () => setConn('error', 'Connection error — retrying…'));
+            socket.on('disconnect', () => setConn('error', 'Disconnected — live updates paused'));
+            socket.io.on('reconnect_attempt', n => setConn('reconnecting', `Reconnecting… (attempt ${n})`));
+            socket.io.on('reconnect', () => setConn('connected', 'Connected · Live'));
+            socket.on('connect_error', () => setConn('reconnecting', 'Reconnecting…'));
 
             // Main dashboard update
             socket.on('dashboard_update', (data) => {
@@ -1622,8 +1649,10 @@
             else uValue.style.color = '';
 
             document.getElementById('mUBar').style.width = p + '%';
-            document.getElementById('mUnderstandingSub').textContent =
-                p >= 65 ? 'Class progressing well' : p >= 40 ? 'Some students struggling' : 'Most students need help';
+            document.getElementById('mUnderstandingSub').textContent = classStats.total === 0
+                ? 'Waiting for students…'
+                : (p >= 65 ? 'Class progressing well' : p >= 40 ? 'Some students struggling' : 'Most students need help');
+            if (classStats.total === 0) uValue.textContent = '—';
             document.getElementById('mStudents').textContent = classStats.total || 0;
             document.getElementById('mStruggling').textContent = (classStats.struggling || 0) + ' need attention';
             document.getElementById('mSBar').style.width = Math.min((classStats.total || 0) * 12, 100) + '%';
@@ -1644,7 +1673,7 @@
             if (!list.length) {
                 grid.innerHTML = `<div class="empty-grid">
           <div class="empty-icon"><svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#8a8aaa" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg></div>
-          <div class="empty-text">No students have joined yet.<br>Share the join link above.</div>
+          <div class="empty-text"><strong>No students have joined yet.</strong><br>Share the join link above — students appear here live as soon as they join.<br><button type="button" class="btn btn-ghost" style="margin-top:.8rem" onclick="copyJoinLink(this)">Copy join link</button></div>
         </div>`;
                 if (radarGrid) radarGrid.style.display = 'none';
                 if (radarHeader) radarHeader.style.display = 'none';
@@ -1688,6 +1717,7 @@
                 red: ['card-red', 'sb-red', 'Critical', 'var(--red)'],
             };
             const [cardCls, badgeCls, statusLabel, progColor] = statusMap[s.status] || statusMap.green;
+            const statusGlyph = s.status === 'red' ? '✕ ' : (s.status === 'yellow' ? '▲ ' : '● ');
 
             const idleSec = Math.round(s.idle_seconds || 0);
             const idle = idleSec >= 60 ? `${Math.floor(idleSec / 60)}m ${idleSec % 60}s` : `${idleSec}s`;
@@ -1703,7 +1733,7 @@
               <div class="s-task">${s.current_code_lines || 0} lines · ${s.total_keystrokes || 0} keystrokes</div>
             </div>
           </div>
-          <div class="status-badge ${badgeCls}">${statusLabel}</div>
+          <div class="status-badge ${badgeCls}">${statusGlyph}${statusLabel}</div>
         </div>
         <div class="prog-row"><span>Progress</span><span style="color:${progColor};font-weight:600">${prog}%</span></div>
         <div class="prog-track"><div class="prog-fill" style="width:${prog}%;background:${progColor}"></div></div>
@@ -1737,7 +1767,7 @@
         <div class="alert ${cls}" id="${id}">
           <span class="alert-icon">${icon}</span>
           <div class="alert-body"><div class="alert-title ${tcls}">${title}</div><div class="alert-detail">${text}</div></div>
-          <button class="alert-close" onclick="document.getElementById('${id}').remove()">×</button>
+          <button class="alert-close" aria-label="Dismiss alert" onclick="document.getElementById('${id}').remove()">×</button>
         </div>`);
             // Keep max 10
             while (area.children.length > 10) area.removeChild(area.lastChild);
@@ -1823,23 +1853,17 @@
         // ── End Session ───────────────────────────────────────────────
         async function openEndModal() {
             document.getElementById('endModal').classList.add('show');
-            const list = Object.values(students);
-            document.getElementById('reportGrid').innerHTML = `
-        <div class="report-stat"><div class="report-val" style="color:var(--teal)">${classStats.avg || 0}%</div><div class="report-lbl">Class Understanding</div></div>
-        <div class="report-stat"><div class="report-val">${list.length}</div><div class="report-lbl">Students</div></div>
-        <div class="report-stat"><div class="report-val" style="color:var(--teal)">${classStats.hints || 0}</div><div class="report-lbl">AI Hints Sent</div></div>
-        <div class="report-stat"><div class="report-val" style="color:var(--red)">${classStats.flags || 0}</div><div class="report-lbl">Integrity Flags</div></div>`;
-            document.getElementById('reportSummary').textContent = 'Generating AI report…';
+            const endBtn = document.getElementById('endBtn'); endBtn.disabled = true;
+            const list = Object.values(students); document.getElementById('reportGrid').innerHTML = `<div class="report-stat"><div class="report-val" style="color:var(--teal)">${classStats.avg || 0}%</div><div class="report-lbl">Class Understanding</div></div><div class="report-stat"><div class="report-val">${list.length}</div><div class="report-lbl">Students</div></div><div class="report-stat"><div class="report-val" style="color:var(--teal)">${classStats.hints || 0}</div><div class="report-lbl">AI Hints Sent</div></div><div class="report-stat"><div class="report-val" style="color:var(--red)">${classStats.flags || 0}</div><div class="report-lbl">Integrity Flags</div></div>`;
+            const summary = document.getElementById('reportSummary'); summary.removeAttribute('role'); summary.innerHTML = '<span class="spinner"></span> Generating AI report…';
+            try { const res = await fetch(`${API}/api/sessions/${sessionId}/end`, { method: 'POST' }); if (!res.ok) throw new Error(await parseApiError(res)); const data = await res.json(); renderReportGridFromAnalytics(data.analytics || {}); renderSessionAnalytics(data.analytics || {}); renderInsights(data.summary || 'No summary available.', data.analytics || {}); }
+            catch (e) { summary.textContent = 'Could not end session: ' + e.message; summary.style.color = 'var(--red)'; summary.setAttribute('role', 'alert'); summary.insertAdjacentHTML('beforeend', '<br><button class="btn btn-ghost" style="margin-top:.7rem" onclick="openEndModal()">Retry</button>'); }
+            finally { endBtn.disabled = false; }
+        }
 
-            try {
-                const res = await fetch(`${API}/api/sessions/${sessionId}/end`, { method: 'POST' });
-                const data = await res.json();
-                renderReportGridFromAnalytics(data.analytics || {});
-                renderSessionAnalytics(data.analytics || {});
-                renderInsights(data.summary || 'No summary available.', data.analytics || {});
-            } catch (e) {
-                document.getElementById('reportSummary').textContent = 'Could not load AI summary: ' + e.message;
-            }
+        async function sendKnowledgeCheck() {
+            const btn = document.getElementById('quizBtn'); const status = document.getElementById('quizStatus'); btn.disabled = true; btn.innerHTML = '<span class="spinner"></span> Generating quiz…'; status.textContent = ''; status.removeAttribute('role');
+            try { const mode = document.getElementById('createModeInput').value; const difficulty = document.getElementById('createDifficultyInput').value; const res = await fetch(`${API}/api/sessions/${sessionId}/generate-quiz?num_questions=5&difficulty=${encodeURIComponent(difficulty)}&mode=${encodeURIComponent(mode)}`, { method: 'POST' }); if (!res.ok) throw new Error(await parseApiError(res)); const data = await res.json(); const n = (data.questions || []).length || data.num_questions || 0; pushFeed('info', `Quiz with ${n} questions sent to students.`); status.textContent = `Sent ${n} questions`; status.style.color = 'var(--teal)'; } catch (e) { status.textContent = e.message; status.style.color = 'var(--red)'; status.setAttribute('role', 'alert'); } finally { btn.disabled = false; btn.innerHTML = '🧠 Send Knowledge Check'; }
         }
 
         function closeEndModal() { document.getElementById('endModal').classList.remove('show'); }
@@ -1883,7 +1907,7 @@
             };
             const [badgeCls, statusLabel] = statusMap[s.status] || statusMap.green;
             document.getElementById('smStatus').className = `status-badge ${badgeCls}`;
-            document.getElementById('smStatus').textContent = statusLabel;
+            document.getElementById('smStatus').textContent = (s.status === 'red' ? '✕ ' : (s.status === 'yellow' ? '▲ ' : '● ')) + statusLabel;
 
             const codeEl = document.getElementById('smCode');
             codeEl.textContent = s.current_code || '// No code written yet';
@@ -1891,9 +1915,13 @@
             document.getElementById('studentModal').classList.add('show');
         }
 
-        function closeStudentModal() {
-            document.getElementById('studentModal').classList.remove('show');
-        }
+        function closeStudentModal() { document.getElementById('studentModal').classList.remove('show'); }
+
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') { closeEndModal(); closeStudentModal(); }
+            if ((e.key === 'Enter' || e.key === ' ') && e.target.classList.contains('student-card')) { e.preventDefault(); e.target.click(); }
+            if ((e.key === 'Enter' || e.key === ' ') && e.target.classList.contains('opt-chip')) { e.preventDefault(); e.target.click(); }
+        });
 
     </script>
 </body>

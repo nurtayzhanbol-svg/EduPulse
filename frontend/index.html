@@ -39,6 +39,15 @@ body{font-family:'Source Sans 3',sans-serif;background:var(--cream);color:var(--
 /* HERO */
 .hero{padding:140px 2.5rem 80px;max-width:1180px;margin:0 auto;display:grid;grid-template-columns:1.05fr .95fr;gap:5rem;align-items:center}
 @media(max-width:880px){.hero{grid-template-columns:1fr;gap:3rem;padding:110px 2rem 60px}}
+@media(max-width:480px){
+  .nav{padding:0 .75rem}
+  .logo-text{font-size:1.1rem}
+  .nav-links{gap:0}
+  .nav-link{display:none}
+  .nav-cta{margin-left:0;padding:7px 10px;font-size:.75rem}
+  .hero{padding-left:1rem;padding-right:1rem}
+}
+.hero-content,.hero-visual,.concept-vis{min-width:0}
 .hero-badge{display:inline-flex;align-items:center;gap:8px;background:rgba(26,122,110,.09);border:1px solid rgba(26,122,110,.22);border-radius:20px;padding:5px 14px 5px 10px;font-size:.78rem;font-weight:600;color:var(--teal);margin-bottom:1.5rem;letter-spacing:.03em}
 .live-dot{width:7px;height:7px;border-radius:50%;background:var(--teal);animation:blink 2s infinite}
 @keyframes blink{0%,100%{opacity:1}50%{opacity:.3}}
@@ -266,7 +275,7 @@ footer{background:var(--cream);border-top:1px solid var(--border);padding:2.2rem
       <p class="hero-body">EduPulse gives teachers real-time visibility into student understanding. No more guessing. No more students falling silently behind. See every student's progress, confusion, and engagement — as it happens.</p>
       <div class="hero-btns">
         <a href="teacher.html" class="btn btn-navy"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="13" rx="2"/><path d="M8 21h8M12 17v4"/></svg> Open Teacher Dashboard</a>
-        <a href="#" onclick="openJoinModal();return false;" class="btn btn-stroke"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 10v6M2 10l10-5 10 5-10 5z"/><path d="M6 12v5c3 3 9 3 12 0v-5"/></svg> Join as Student</a>
+        <button type="button" onclick="openJoinModal()" class="btn btn-stroke"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 10v6M2 10l10-5 10 5-10 5z"/><path d="M6 12v5c3 3 9 3 12 0v-5"/></svg> Join as Student</button>
       </div>
       <div class="hero-trust">
         <div class="trust-item"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg> Privacy-first design</div>
@@ -430,7 +439,7 @@ footer{background:var(--cream);border-top:1px solid var(--border);padding:2.2rem
     <p class="cta-sub">Open the Teacher Dashboard, launch a session, and invite a student to join. See the dashboard come alive in real time — no sign-up required.</p>
     <div class="cta-btns">
       <a class="btn btn-teal" href="teacher.html">Open Teacher Dashboard →</a>
-      <a class="btn btn-wghost" href="#" onclick="openJoinModal();return false;">Join as Student</a>
+      <button type="button" class="btn btn-wghost" onclick="openJoinModal()">Join as Student</button>
     </div>
   </div>
 </section>
@@ -444,12 +453,12 @@ footer{background:var(--cream);border-top:1px solid var(--border);padding:2.2rem
 </footer>
 
 <div id="joinModal" class="join-modal" onclick="if(event.target===this)closeJoinModal()">
-  <div class="join-card">
-    <div class="join-head">Join as Student</div>
+  <div class="join-card" role="dialog" aria-modal="true" aria-labelledby="joinHead">
+    <div class="join-head" id="joinHead">Join as Student</div>
     <div class="join-subtext">Paste the full session link shared by your teacher.</div>
-    <label class="join-label">Session Link</label>
+    <label class="join-label" for="homeSessionLink">Session Link</label>
     <input id="homeSessionLink" class="join-input" placeholder="e.g. https://.../student.html?session=a4682895" />
-    <div id="homeJoinError" class="join-error">Please paste a valid session link.</div>
+    <div id="homeJoinError" class="join-error" role="alert">Please paste a valid session link.</div>
     <div class="join-actions">
       <button class="btn btn-stroke" type="button" onclick="closeJoinModal()">Cancel</button>
       <button class="btn btn-navy" type="button" onclick="joinFromHome()">Open Workspace</button>
@@ -477,11 +486,13 @@ function openJoinModal(){
   if(!m) return;
   m.classList.add('show');
   document.getElementById('homeJoinError').style.display='none';
+  document.getElementById('homeJoinError').textContent='Please paste a valid session link.';
   document.getElementById('homeSessionLink')?.focus();
 }
 function closeJoinModal(){
   document.getElementById('joinModal')?.classList.remove('show');
 }
+document.addEventListener('keydown', e=>{ if(e.key==='Escape') closeJoinModal(); if(e.key==='Enter' && e.target.id==='homeSessionLink') joinFromHome(); });
 function joinFromHome(){
   const raw=document.getElementById('homeSessionLink')?.value||'';
   const sid=extractSessionId(raw);
