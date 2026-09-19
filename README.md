@@ -38,7 +38,8 @@ All settings come from environment variables — see `.env.example`.
 | `AZURE_OPENAI_ENDPOINT` | Azure endpoint; when empty, plain OpenAI is used | — |
 | `AZURE_OPENAI_API_VERSION` | Azure API version | `2024-12-01-preview` |
 | `OPENAI_API_KEY` | OpenAI key (non-Azure) | — |
-| `OPENAI_MODEL` | Model name / Azure deployment name | `gpt-4o` |
+| `OPENAI_BASE_URL` | OpenAI-compatible endpoint (OpenRouter, Groq, Ollama, …) | OpenAI default |
+| `OPENAI_MODEL` | Model name / Azure deployment name | `gpt-5.6-luna` |
 
 Without credentials the AI engine falls back to mock hints, so the app still runs end-to-end.
 
