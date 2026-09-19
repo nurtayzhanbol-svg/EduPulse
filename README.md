@@ -1,5 +1,61 @@
-README file.
-This is the explanation of the program to present.
+# EduPulse
+
+Real-time classroom analytics and AI-assisted learning platform (FastAPI + Socket.IO backend, static HTML frontend).
+
+## Quick Start
+
+Requirements: Python 3.11+
+
+```bash
+cd backend
+python -m venv venv
+source venv/bin/activate          # Windows: venv\Scripts\activate
+pip install -r requirements.txt
+
+cp ../.env.example ../.env        # fill in your AI credentials
+set -a && source ../.env && set +a
+
+python main.py                    # http://localhost:8000
+```
+
+Pages:
+
+| URL | Purpose |
+| --- | --- |
+| `/` | Landing page |
+| `/teacher.html` | Teacher dashboard (create session, upload PDF, live metrics) |
+| `/student.html?session=<id>` | Student workspace |
+| `/report.html?session=<id>` | Post-class report |
+
+## Configuration
+
+All settings come from environment variables — see `.env.example`.
+
+| Variable | Description | Default |
+| --- | --- | --- |
+| `PORT` | Server port | `8000` |
+| `AZURE_OPENAI_API_KEY` | Azure OpenAI key | — |
+| `AZURE_OPENAI_ENDPOINT` | Azure endpoint; when empty, plain OpenAI is used | — |
+| `AZURE_OPENAI_API_VERSION` | Azure API version | `2024-12-01-preview` |
+| `OPENAI_API_KEY` | OpenAI key (non-Azure) | — |
+| `OPENAI_MODEL` | Model name / Azure deployment name | `gpt-4o` |
+
+Without credentials the AI engine falls back to mock hints, so the app still runs end-to-end.
+
+## Project Layout
+
+```
+backend/
+  main.py             FastAPI app, REST endpoints, Socket.IO events
+  session_manager.py  session/student lifecycle
+  telemetry.py        event processing, understanding & frustration scoring
+  ai_engine.py        hints, quiz generation, PDF analysis
+  pdf_engine.py       PDF text extraction
+  models.py           pydantic models
+frontend/             self-contained HTML pages (inline CSS/JS)
+```
+
+---
 
 🧠 Overview
 EduPulse is a real-time classroom analytics and AI-assisted learning platform that enables teachers to:
