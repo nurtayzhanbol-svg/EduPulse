@@ -1517,6 +1517,8 @@
             const nav = document.getElementById('navConn');
             const icons = { connected: '●', reconnecting: '⟳', error: '✕', connecting: '⟳' };
             const icon = icons[state] || '●';
+            const live = document.getElementById('liveChip');
+            if (live && sessionId) live.style.display = state === 'connected' ? 'flex' : 'none';
             if (b) {
                 b.style.display = 'flex';
                 b.className = 'conn-bar ' + state;
