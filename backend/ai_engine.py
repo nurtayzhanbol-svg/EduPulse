@@ -372,7 +372,8 @@ async def generate_session_summary(session: SessionState) -> str:
     for idx, (_, s) in enumerate(session.students.items(), start=1):
         student_summaries.append({
             "name": f"Student {idx}",
-            "understanding_score": round(s.understanding_score, 1),
+            "quiz_score": s.quiz_score,
+            "support_signals": s.support_signals,
             "status": s.status,
             "keystrokes": s.total_keystrokes,
             "paste_events": len(s.paste_events),
@@ -413,29 +414,43 @@ def _mock_summary(session: SessionState, student_data: list[dict]) -> str:
     if total == 0:
         return "📊 **Session Summary**\n\nNo students participated in this session."
 
-    avg_score = sum(s["understanding_score"] for s in student_data) / total
-    struggling = [s for s in student_data if s["understanding_score"] < 50]
-    excelling = [s for s in student_data if s["understanding_score"] >= 70]
+    graded = [s for s in student_data if s["quiz_score"] is not None]
+    avg_score = sum(s["quiz_score"] for s in graded) / len(graded) if graded else None
+    struggling = [s for s in graded if s["quiz_score"] < 50]
+    excelling = [s for s in graded if s["quiz_score"] >= 80]
+    unsupported = [s for s in student_data if s["support_signals"] >= 3]
     paste_concerns = [s for s in student_data if s["large_pastes"] > 0]
+    accuracy_line = (
+        f"{avg_score:.1f}% across {len(graded)}/{total} submissions"
+        if avg_score is not None else "no quiz evidence yet"
+    )
 
     report = f"""📊 **EduPulse Session Report**
 
 ## Overall Performance
 - **Students:** {total}
-- **Average Understanding Score:** {avg_score:.1f}/100
-- **Class Status:** {"✅ Good" if avg_score >= 60 else "⚠️ Needs Attention" if avg_score >= 40 else "🚨 Critical"}
+- **Quiz Accuracy:** {accuracy_line}
+- **Students Needing Support (3+ hints/help requests):** {len(unsupported)}
 
 ## Student Breakdown
 """
+    if not graded:
+        report += "\nNo quiz was submitted, so this session has no direct evidence of understanding.\n"
+
     if excelling:
-        report += f"\n### 🌟 Excelling ({len(excelling)} students)\n"
+        report += f"\n### 🌟 Answered correctly ({len(excelling)} students)\n"
         for s in excelling:
-            report += f"- **{s['name']}**: Score {s['understanding_score']}, {s['keystrokes']} keystrokes\n"
+            report += f"- **{s['name']}**: quiz {s['quiz_score']}%, {s['keystrokes']} keystrokes\n"
 
     if struggling:
-        report += f"\n### ⚠️ Struggling ({len(struggling)} students)\n"
+        report += f"\n### ⚠️ Struggled on the quiz ({len(struggling)} students)\n"
         for s in struggling:
-            report += f"- **{s['name']}**: Score {s['understanding_score']}, {s['hints_used']} hints used, {s['idle_time']}s idle\n"
+            report += f"- **{s['name']}**: quiz {s['quiz_score']}%, {s['hints_used']} hints used, {s['idle_time']}s idle\n"
+
+    if unsupported:
+        report += f"\n### 🙋 Asked for the most support ({len(unsupported)} students)\n"
+        for s in unsupported:
+            report += f"- **{s['name']}**: {s['support_signals']} support signals ({s['hints_used']} hints)\n"
 
     if paste_concerns:
         report += f"\n### 🚨 Plagiarism Concerns ({len(paste_concerns)} students)\n"
@@ -444,7 +459,7 @@ def _mock_summary(session: SessionState, student_data: list[dict]) -> str:
 
     report += f"""
 ## Recommendations
-- {"Focus next class on reviewing the core concepts — average score below 60." if avg_score < 60 else "Class is progressing well. Consider introducing more advanced challenges."}
+- {"Run a quiz next session — there is no evidence of what the class understood." if avg_score is None else "Focus next class on reviewing the core concepts — quiz accuracy below 60%." if avg_score < 60 else "Class is progressing well. Consider introducing more advanced challenges."}
 - {"Schedule one-on-one time with struggling students." if struggling else "No individual interventions needed."}
 - {"Address potential academic integrity concerns with flagged students." if paste_concerns else "No plagiarism concerns detected."}
 """

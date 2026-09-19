@@ -60,8 +60,12 @@ class StudentState:
         self.sid = sid  # Socket.IO session id
         self.token_hash: str = ""  # sha256 of the student's bearer token
         self.status: str = "green"  # green | yellow | red
-        self.understanding_score: float = 100.0
         self.progress: float = 0.0
+        # Quiz correctness — the only direct evidence of what the student knows.
+        # quiz_score stays None until the student submits a quiz.
+        self.quiz_score: float | None = None
+        self.quiz_correct: int = 0
+        self.quiz_total: int = 0
         self.total_keystrokes: int = 0
         self.total_backspaces: int = 0
         self.paste_events: list[dict] = []
@@ -77,6 +81,14 @@ class StudentState:
         self.last_keypress_at: float = datetime.now().timestamp()
         self.last_pause_hint_at: float = 0.0
 
+    @property
+    def support_signals(self) -> int:
+        """How many times this student needed support: hints delivered + help asked for.
+
+        A count of observed events, not a mastery estimate.
+        """
+        return self.hints_given + len(self.help_requests)
+
     def to_dict(self, include_code: bool = False) -> dict:
         code_preview = ""
         if self.current_code:
@@ -86,8 +98,12 @@ class StudentState:
             "student_id": self.student_id,
             "name": self.name,
             "status": self.status,
-            "understanding_score": round(self.understanding_score, 1),
             "progress": round(self.progress, 1),
+            "quiz_score": self.quiz_score,
+            "quiz_correct": self.quiz_correct,
+            "quiz_total": self.quiz_total,
+            "help_requests_count": len(self.help_requests),
+            "support_signals": self.support_signals,
             "total_keystrokes": self.total_keystrokes,
             "paste_events_count": len(self.paste_events),
             "idle_seconds": round(self.idle_seconds, 1),

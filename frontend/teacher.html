@@ -1292,9 +1292,9 @@
 
             <div class="metrics-row">
                 <div class="metric-card">
-                    <div class="metric-label">Class Understanding</div>
+                    <div class="metric-label">Quiz Accuracy</div>
                     <div class="metric-value teal" id="mUnderstanding">—</div>
-                    <div class="metric-sub" id="mUnderstandingSub">Waiting…</div>
+                    <div class="metric-sub" id="mUnderstandingSub">No evidence yet</div>
                     <div class="metric-bar">
                         <div class="metric-bar-fill" id="mUBar" style="width:0%;background:var(--teal)"></div>
                     </div>
@@ -1400,7 +1400,7 @@
 
             <div class="sm-metrics">
                 <div class="metric-card" style="padding: 1rem;">
-                    <div class="metric-label" style="font-size:0.65rem; margin-bottom:0.4rem;">Understanding</div>
+                    <div class="metric-label" style="font-size:0.65rem; margin-bottom:0.4rem;">Quiz Score</div>
                     <div class="metric-value" id="smScore" style="font-size:1.5rem;"></div>
                 </div>
                 <div class="metric-card" style="padding: 1rem;">
@@ -1441,7 +1441,7 @@
         const TEACHER_TOKEN_KEY = 'edupulse_teacher_token';
         function teacherToken() { return sessionStorage.getItem(TEACHER_TOKEN_KEY) || ''; }
         function authHeaders(extra = {}) { return { ...extra, 'Authorization': 'Bearer ' + teacherToken() }; }
-        let classStats = { avg: 0, struggling: 0, total: 0, flags: 0, hints: 0 };
+        let classStats = { avg: null, graded: 0, struggling: 0, total: 0, flags: 0, hints: 0 };
         const COLORS = ['#1a7a6e', '#2c3e6b', '#9b4e87', '#c97010', '#1a6a9a', '#7a3a9a'];
 
         // ── Option Selection (Mode/Difficulty) ────────────────────────
@@ -1678,12 +1678,16 @@
         function recalcStats() {
             const list = Object.values(students);
             const total = list.length;
-            if (!total) { classStats = { avg: 0, struggling: 0, total: 0, flags: classStats.flags, hints: classStats.hints }; return; }
+            if (!total) { classStats = { avg: null, graded: 0, struggling: 0, total: 0, flags: classStats.flags, hints: classStats.hints }; return; }
 
-            const avg = Math.round(list.reduce((a, s) => a + (s.understanding_score || 0), 0) / total);
+            const graded = list.filter(s => s.quiz_score !== null && s.quiz_score !== undefined);
+            const avg = graded.length
+                ? Math.round(graded.reduce((a, s) => a + s.quiz_score, 0) / graded.length)
+                : null;
             const struggling = list.filter(s => s.status === 'yellow' || s.status === 'red').length;
             const flags = list.reduce((a, s) => a + (s.paste_events_count || 0), 0);
 
+            classStats.graded = graded.length;
             classStats.avg = avg;
             classStats.struggling = struggling;
             classStats.total = total;
@@ -1691,19 +1695,16 @@
         }
 
         function updateMetrics() {
-            const p = classStats.avg || 0;
+            const hasEvidence = classStats.avg !== null && classStats.avg !== undefined;
+            const p = hasEvidence ? classStats.avg : 0;
             const uValue = document.getElementById('mUnderstanding');
-            uValue.textContent = p + '%';
-
-            const frustRatio = classStats.struggling / (classStats.total || 1);
-            if (frustRatio > 0.5) uValue.style.color = 'var(--red)';
-            else uValue.style.color = '';
+            uValue.textContent = hasEvidence ? p + '%' : '—';
+            uValue.style.color = hasEvidence && p < 50 ? 'var(--red)' : '';
 
             document.getElementById('mUBar').style.width = p + '%';
-            document.getElementById('mUnderstandingSub').textContent = classStats.total === 0
-                ? 'Waiting for students…'
-                : (p >= 65 ? 'Class progressing well' : p >= 40 ? 'Some students struggling' : 'Most students need help');
-            if (classStats.total === 0) uValue.textContent = '—';
+            document.getElementById('mUnderstandingSub').textContent = !hasEvidence
+                ? (classStats.total === 0 ? 'Waiting for students…' : 'No evidence yet — run a quiz')
+                : `${classStats.graded}/${classStats.total} submitted`;
             document.getElementById('mStudents').textContent = classStats.total || 0;
             document.getElementById('mStruggling').textContent = (classStats.struggling || 0) + ' need attention';
             document.getElementById('mSBar').style.width = Math.min((classStats.total || 0) * 12, 100) + '%';
@@ -1758,7 +1759,7 @@
         function cardHTML(s, i, isRadar = false) {
             const clr = COLORS[i % COLORS.length];
             const bg = clr + '18';
-            const score = Math.round(s.understanding_score || 0);
+            const quiz = (s.quiz_score === null || s.quiz_score === undefined) ? null : Math.round(s.quiz_score);
             const initials = s.name.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase();
 
             // Map backend status (green/yellow/red) to UI classes
@@ -1789,9 +1790,9 @@
         <div class="prog-row"><span>Progress</span><span style="color:${progColor};font-weight:600">${prog}%</span></div>
         <div class="prog-track"><div class="prog-fill" style="width:${prog}%;background:${progColor}"></div></div>
         <div class="s-metrics">
-          <div class="s-met"><div class="s-met-val" style="color:${progColor}">${score}%</div><div class="s-met-lbl">Score</div></div>
+          <div class="s-met"><div class="s-met-val" style="color:${quiz === null ? 'var(--text-dim)' : progColor}">${quiz === null ? '—' : quiz + '%'}</div><div class="s-met-lbl">Quiz</div></div>
           <div class="s-met"><div class="s-met-val">${idle}</div><div class="s-met-lbl">Idle</div></div>
-          <div class="s-met"><div class="s-met-val">${s.hints_given || 0}</div><div class="s-met-lbl">Hints</div></div>
+          <div class="s-met"><div class="s-met-val">${s.hints_given || 0} / ${s.help_requests_count || 0}</div><div class="s-met-lbl">Hints / Asked</div></div>
         </div>
         ${pasteCount > 0 ? `<div class="flag-note"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/></svg> ${pasteCount} paste event${pasteCount > 1 ? 's' : ''} detected — please review</div>` : ''}
         ${pasteCount === 0 && idleSec > 120 ? `<div class="idle-note"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg> Idle for ${idle} — may need assistance</div>` : ''}
@@ -1891,11 +1892,12 @@
         function renderReportGridFromAnalytics(analytics) {
             if (!analytics || typeof analytics !== 'object') return;
             const totalStudents = Number(analytics.total_students || 0);
-            const avgUnderstanding = Number(analytics.avg_understanding_score || 0);
+            const quizAccuracy = analytics.quiz_accuracy === null || analytics.quiz_accuracy === undefined
+                ? null : Math.round(Number(analytics.quiz_accuracy));
             const totalHints = Number(analytics.total_hints || 0);
             const critical = Number(analytics.critical_students || 0);
             document.getElementById('reportGrid').innerHTML = `
-        <div class="report-stat"><div class="report-val" style="color:var(--teal)">${avgUnderstanding}%</div><div class="report-lbl">Understanding</div></div>
+        <div class="report-stat"><div class="report-val" style="color:var(--teal);font-size:${quizAccuracy === null ? '.9rem' : ''}">${quizAccuracy === null ? 'No evidence yet' : quizAccuracy + '%'}</div><div class="report-lbl">Quiz Accuracy</div></div>
         <div class="report-stat"><div class="report-val">${totalStudents}</div><div class="report-lbl">Students</div></div>
         <div class="report-stat"><div class="report-val" style="color:var(--teal)">${totalHints}</div><div class="report-lbl">AI Hints Sent</div></div>
         <div class="report-stat"><div class="report-val" style="color:var(--red)">${critical}</div><div class="report-lbl">Need Follow-up</div></div>`;
@@ -1907,7 +1909,7 @@
             const endBtn = document.getElementById('endBtn');
             endBtn.disabled = true;
             const list = Object.values(students);
-            document.getElementById('reportGrid').innerHTML = `<div class="report-stat"><div class="report-val" style="color:var(--teal)">${classStats.avg || 0}%</div><div class="report-lbl">Class Understanding</div></div><div class="report-stat"><div class="report-val">${list.length}</div><div class="report-lbl">Students</div></div><div class="report-stat"><div class="report-val" style="color:var(--teal)">${classStats.hints || 0}</div><div class="report-lbl">AI Hints Sent</div></div><div class="report-stat"><div class="report-val" style="color:var(--red)">${classStats.flags || 0}</div><div class="report-lbl">Integrity Flags</div></div>`;
+            document.getElementById('reportGrid').innerHTML = `<div class="report-stat"><div class="report-val" style="color:var(--teal);font-size:${classStats.avg === null || classStats.avg === undefined ? '.9rem' : ''}">${classStats.avg === null || classStats.avg === undefined ? 'No evidence yet' : classStats.avg + '%'}</div><div class="report-lbl">Quiz Accuracy</div></div><div class="report-stat"><div class="report-val">${list.length}</div><div class="report-lbl">Students</div></div><div class="report-stat"><div class="report-val" style="color:var(--teal)">${classStats.hints || 0}</div><div class="report-lbl">AI Hints Sent</div></div><div class="report-stat"><div class="report-val" style="color:var(--red)">${classStats.flags || 0}</div><div class="report-lbl">Integrity Flags</div></div>`;
             const summary = document.getElementById('reportSummary');
             summary.removeAttribute('role');
             summary.innerHTML = '<span class="spinner"></span> Generating AI report…';
@@ -1979,10 +1981,13 @@
 
             const idleSec = Math.round(s.idle_seconds || 0);
             const idle = idleSec >= 60 ? `${Math.floor(idleSec / 60)}m ${idleSec % 60}s` : `${idleSec}s`;
-            const score = Math.round(s.understanding_score || 0);
+            const quiz = (s.quiz_score === null || s.quiz_score === undefined) ? null : Math.round(s.quiz_score);
 
-            document.getElementById('smScore').textContent = `${score}%`;
-            document.getElementById('smScore').style.color = score < 50 ? 'var(--red)' : (score < 80 ? 'var(--amber)' : 'var(--teal)');
+            document.getElementById('smScore').textContent = quiz === null ? 'No evidence yet' : `${quiz}%`;
+            document.getElementById('smScore').style.fontSize = quiz === null ? '.8rem' : '1.5rem';
+            document.getElementById('smScore').style.color = quiz === null
+                ? 'var(--text-dim)'
+                : (quiz < 50 ? 'var(--red)' : (quiz < 80 ? 'var(--amber)' : 'var(--teal)'));
 
             const frust = (s.frustration_score || 0).toFixed(2);
             document.getElementById('smFrust').textContent = frust;

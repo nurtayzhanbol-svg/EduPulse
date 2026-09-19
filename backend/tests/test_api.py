@@ -9,7 +9,6 @@ import pytest_asyncio
 
 import ai_engine
 import session_manager
-import telemetry
 from main import app
 
 pytestmark = pytest.mark.asyncio
@@ -121,9 +120,13 @@ async def test_full_happy_path(client):
     assert analytics["total_students"] == 2
     assert analytics["total_hints"] == 0
     assert analytics["on_track_students"] == 2
-    assert analytics["avg_understanding_score"] == 100.0
+    assert analytics["quiz_accuracy"] is None
+    assert analytics["quiz_submissions"] == 0
+    assert analytics["total_help_requests"] == 0
+    assert analytics["total_support_signals"] == 0
+    assert "avg_understanding_score" not in analytics
     assert analytics["insights"][0] == "No students required hints in this session."
-    assert [b["label"] for b in analytics["bars"]][:2] == ["On-Track Students", "Struggling (>=1 hint)"]
+    assert [b["label"] for b in analytics["bars"]][:2] == ["Quiz Accuracy", "Quiz Submissions"]
 
     r = await client.get(f"/api/sessions/{sid}")
     assert r.json()["active"] is False
@@ -134,8 +137,8 @@ async def test_full_happy_path(client):
     assert report["session_id"] == sid
     assert report["task_level"] == "easy"
     assert report["analytics"] == analytics
-    assert report["counts"] == {"mastered": 2, "partial": 0, "struggling": 0, "incomplete": 0}
-    assert report["percentages"]["mastered"] == 100
+    assert report["counts"] == {"strong": 0, "mixed": 0, "weak": 0, "no_evidence": 2}
+    assert report["percentages"]["no_evidence"] == 100
     assert report["duration_minutes"] == 1  # floor of 60s
     assert report["timeline"]["labels"] == ["0"]
     assert report["timeline"]["data"] == [0]
@@ -194,16 +197,16 @@ async def test_report_reflects_student_hints_and_status(client):
     session.students["Zed"].status = "red"
     r = await client.get(f"/api/sessions/{sid}/report", headers=th(sid))
     report = r.json()
-    assert report["counts"] == {"mastered": 0, "partial": 1, "struggling": 0, "incomplete": 0}
+    # Hints alone are never evidence of what the student understood.
+    assert report["counts"] == {"strong": 0, "mixed": 0, "weak": 0, "no_evidence": 1}
     assert report["students"][0] == {
-        "name": "Zed", "hints": 3, "status": "red", "idle_seconds": 0.0, "understanding_score": 46.0,
+        "name": "Zed", "hints": 3, "status": "red", "idle_seconds": 0.0,
+        "help_requests": 0, "support_signals": 3, "quiz_score": None,
     }
     assert report["analytics"]["critical_students"] == 1
-    # Same formula as the live dashboard: 100 - 3 * 18.
-    assert report["analytics"]["avg_understanding_score"] == 46.0
-    assert session.students["Zed"].to_dict()["understanding_score"] == 100.0  # not yet recomputed live
-    telemetry._update_understanding_score(session.students["Zed"])
-    assert session.students["Zed"].to_dict()["understanding_score"] == 46.0
+    assert report["analytics"]["quiz_accuracy"] is None
+    assert report["analytics"]["total_support_signals"] == 3
+    assert session.students["Zed"].to_dict()["quiz_score"] is None
 
 
 async def test_needs_follow_up_bar_counts_flagged_students_without_three_hints(client):
@@ -218,20 +221,22 @@ async def test_needs_follow_up_bar_counts_flagged_students_without_three_hints(c
     assert bar["label"] == "Needs Follow-up (>=3 hints or flagged)"
 
 
-async def test_live_and_report_understanding_scores_agree(client):
+async def test_support_signals_count_hints_and_explicit_help_requests(client):
     sid = await create(client)
     await client.post(f"/api/sessions/{sid}/join", json={"student_name": "Zed"})
     session = session_manager.get_session(sid)
     zed = session.students["Zed"]
     zed.hints_given = 2
-    zed.total_keystrokes = 40
-    zed.idle_seconds = 150
-    zed.frustration_score = 0.5
-    telemetry.process_telemetry(session, "Zed", telemetry.TelemetryEvent(event_type="paste", payload={"length": 500}))
-    live = (await client.get(f"/api/sessions/{sid}")).json()["students"]["Zed"]["understanding_score"]
+    zed.help_requests = ["why does this loop stop?"]
+    live = (await client.get(f"/api/sessions/{sid}")).json()["students"]["Zed"]
+    assert live["support_signals"] == 3
+    assert live["help_requests_count"] == 1
+    assert live["quiz_score"] is None
+    assert "understanding_score" not in live
     report = (await client.get(f"/api/sessions/{sid}/report", headers=th(sid))).json()
-    assert live == report["analytics"]["avg_understanding_score"] == report["students"][0]["understanding_score"]
-    assert live == pytest.approx(100 - 36 - 12.5 - 0 - 20)  # large paste resets frustration
+    assert report["students"][0]["support_signals"] == 3
+    assert report["analytics"]["total_help_requests"] == 1
+    assert report["analytics"]["avg_support_signals"] == 3.0
 
 
 async def test_list_sessions_returns_only_the_callers_session(client):
@@ -548,6 +553,13 @@ async def test_submit_quiz_grades_answers(client):
     assert body["correct"] == len(quiz) - 1
     assert body["score"] == round((len(quiz) - 1) / len(quiz) * 100)
     assert body["results"][0]["is_correct"] is False
+
+    student = session_manager.get_session(sid).students["Ann"]
+    assert student.to_dict()["quiz_score"] == body["score"]
+    assert student.to_dict()["quiz_correct"] == body["correct"]
+    analytics = (await client.get(f"/api/sessions/{sid}/report", headers=th(sid))).json()["analytics"]
+    assert analytics["quiz_submissions"] == 1
+    assert analytics["quiz_accuracy"] == body["score"]
 
 
 # ── Input normalisation ───────────────────────────────────────────
