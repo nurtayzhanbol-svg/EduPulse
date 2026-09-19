@@ -562,14 +562,21 @@ function joinFromHome(){
 
 // existing counter animation
 function animCount(id,end,suf,dur){
-  const el=document.getElementById(id),t=Date.now();
+  const el=document.getElementById(id);
+  if(!el)return;
+  const t=Date.now();
   const tick=()=>{const p=Math.min((Date.now()-t)/dur,1),e=1-Math.pow(1-p,3);el.textContent=Math.round(e*end)+suf;if(p<1)requestAnimationFrame(tick);};
   tick();
 }
 setTimeout(()=>{animCount('s1',247,'',1500);animCount('s2',72,'%',1500);animCount('s3',831,'',1700);animCount('s4',14,'',1300);},300);
-// Subtle live preview animation
+// Subtle live preview animation on the average-understanding stat
 let dv=72;
-setInterval(()=>{dv=Math.max(60,Math.min(85,dv+(Math.random()*3-1.2)));document.getElementById('dm1').textContent=Math.round(dv)+'%';},3200);
+setInterval(()=>{
+  const el=document.getElementById('s2');
+  if(!el)return;
+  dv=Math.max(60,Math.min(85,dv+(Math.random()*3-1.2)));
+  el.textContent=Math.round(dv)+'%';
+},3200);
 </script>
 </body>
 </html>
