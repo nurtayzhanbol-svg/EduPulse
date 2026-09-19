@@ -296,7 +296,7 @@
         @keyframes spin { to { transform:rotate(360deg); } }
         .help-btn:disabled, .ht-more:disabled, .modal-submit:disabled { opacity:.55; cursor:not-allowed; transform:none; }
         [data-tip] { position:relative; }
-        [data-tip]:hover::after, [data-tip]:focus-visible::after { content:attr(data-tip); position:absolute; z-index:500; left:50%; bottom:calc(100% + 8px); transform:translateX(-50%); white-space:nowrap; background:var(--navy); color:#fff; border-radius:6px; padding:5px 8px; font-size:.7rem; pointer-events:none; }
+        [data-tip]:hover::after, [data-tip]:focus-visible::after { content:attr(data-tip); position:absolute; z-index:500; left:50%; bottom:calc(100% + 8px); transform:translateX(-50%); white-space:normal; width:max-content; max-width:min(260px, 90vw); background:var(--navy); color:#fff; border-radius:6px; padding:5px 8px; font-size:.7rem; pointer-events:none; }
 
         .err-msg {
             font-size: .8rem;
@@ -1296,7 +1296,9 @@
                 return;
             }
             joinInFlight = true;
-            const joinBtn = document.getElementById('joinBtn'); joinBtn.disabled = true; joinBtn.innerHTML = '<span class="spinner"></span> Joining…';
+            const joinBtn = document.getElementById('joinBtn');
+            joinBtn.disabled = true;
+            joinBtn.innerHTML = '<span class="spinner"></span> Joining…';
             const errEl = document.getElementById('errMsg');
             if (errEl) errEl.style.display = 'none';
 
@@ -1321,7 +1323,10 @@
                     el.style.display = 'block';
                 }
             } finally {
-                joinInFlight = false; const joinBtn = document.getElementById('joinBtn'); joinBtn.disabled = false; joinBtn.textContent = 'Join Session →';
+                joinInFlight = false;
+                const joinBtn = document.getElementById('joinBtn');
+                joinBtn.disabled = false;
+                joinBtn.textContent = 'Join Session →';
             }
         }
 
@@ -1348,7 +1353,11 @@
                 document.getElementById('connBanner').style.display = 'none';
                 socket.emit('join_room', { session_id: sid, role: 'student', student_name: name });
             });
-            socket.on('disconnect', () => { setConn('red', '✕ Disconnected — reconnecting…'); document.getElementById('connBanner').style.display = 'block'; clearHintBusy(); });
+            socket.on('disconnect', () => {
+                setConn('red', '✕ Disconnected — reconnecting…');
+                document.getElementById('connBanner').style.display = 'block';
+                clearHintBusy();
+            });
             socket.io.on('reconnect_attempt', n => setConn('amber', `⟳ Reconnecting… (attempt ${n})`));
             socket.io.on('reconnect', () => { setConn('teal', '● Connected'); document.getElementById('connBanner').style.display = 'none'; });
             socket.on('connect_error', () => setConn('amber', '⟳ Reconnecting…'));
@@ -1357,7 +1366,8 @@
             socket.on('hint', (data) => {
                 if (data.student_name === studentName || !data.student_name) {
                     showHint(data.hint, data.level || 0);
-                    hintLevel = data.level || 0; clearHintBusy();
+                    hintLevel = data.level || 0;
+                    clearHintBusy();
                 }
             });
 
@@ -1376,24 +1386,59 @@
             });
 
             // Errors
-            socket.on('error', (data) => { clearHintBusy(); showTeacherMsg((data && data.message) || 'Could not process that request.'); });
+            socket.on('error', (data) => {
+                clearHintBusy();
+                showTeacherMsg((data && data.message) || 'Could not process that request.');
+            });
         }
 
         function setConn(cls, text) {
-            const dot = document.getElementById('connDot'); if (dot) dot.className = 'conn-dot ' + cls;
-            const label = document.getElementById('connLabel'); if (label) label.textContent = text;
-            const sb = document.getElementById('sbDot'); if (sb) sb.className = 'sb-dot ' + cls;
-            const sbConn = document.getElementById('sbConn'); if (sbConn) sbConn.textContent = text;
+            const dot = document.getElementById('connDot');
+            if (dot) dot.className = 'conn-dot ' + cls;
+            const label = document.getElementById('connLabel');
+            if (label) label.textContent = text;
+            const sb = document.getElementById('sbDot');
+            if (sb) sb.className = 'sb-dot ' + cls;
+            const sbConn = document.getElementById('sbConn');
+            if (sbConn) sbConn.textContent = text;
         }
 
-        async function parseApiError(res) { try { const data = await res.json(); const d = data && data.detail; if (Array.isArray(d)) return d.map(i => i.msg || String(i)).join('; '); if (typeof d === 'string' && d) return d; return `HTTP ${res.status}`; } catch (_) { return `HTTP ${res.status}`; } }
+        async function parseApiError(res) {
+            try {
+                const data = await res.json();
+                const d = data && data.detail;
+                if (Array.isArray(d)) return d.map(i => i.msg || String(i)).join('; ');
+                if (typeof d === 'string' && d) return d;
+                return `HTTP ${res.status}`;
+            } catch (_) {
+                return `HTTP ${res.status}`;
+            }
+        }
 
         function setHintButtonsBusy(busy) {
-            hintInFlight = busy; const ids = ['confusedBtn','htMore','confusedSubmit'];
-            ids.forEach(id => { const b = document.getElementById(id); if (!b) return; b.disabled = busy; b.setAttribute('aria-disabled', String(busy)); b.setAttribute('aria-busy', String(busy)); if (busy) { b.title = 'Waiting for your hint… (one request at a time)'; b.dataset.tip = b.title; } else { delete b.dataset.tip; b.title = ''; } });
-            const submit = document.getElementById('confusedSubmit'); if (submit) submit.innerHTML = busy ? '<span class="spinner"></span> Requesting hint…' : 'Get Hint →';
+            hintInFlight = busy;
+            const ids = ['confusedBtn', 'htMore', 'confusedSubmit'];
+            ids.forEach(id => {
+                const b = document.getElementById(id);
+                if (!b) return;
+                b.disabled = busy;
+                b.setAttribute('aria-disabled', String(busy));
+                b.setAttribute('aria-busy', String(busy));
+                if (busy) {
+                    b.title = 'Waiting for your hint… (one request at a time)';
+                    b.dataset.tip = b.title;
+                } else {
+                    delete b.dataset.tip;
+                    b.title = '';
+                }
+            });
+            const submit = document.getElementById('confusedSubmit');
+            if (submit) submit.innerHTML = busy ? '<span class="spinner"></span> Requesting hint…' : 'Get Hint →';
         }
-        function clearHintBusy() { clearTimeout(hintTimeout); setHintButtonsBusy(false); }
+        function clearHintBusy() {
+            clearTimeout(hintTimeout);
+            setHintButtonsBusy(false);
+        }
 
         // ── IDLE TIMER & TELEMETRY ────────────────────────────────────
         function startIdleTimer() {
@@ -1547,9 +1592,18 @@
 
         function submitConfused() {
             if (hintInFlight) return;
-            const text = (document.getElementById('confusedText')?.value || '').trim(); closeConfused(); if (!socket || !sessionId) return;
-            sendTelemetry('help', { message: text || 'Student is confused', current_answer: document.getElementById('codeArea')?.value || '' });
-            setHintButtonsBusy(true); hintTimeout = setTimeout(() => { clearHintBusy(); showTeacherMsg('Hint took too long — try again.'); }, 20000);
+            const text = (document.getElementById('confusedText')?.value || '').trim();
+            closeConfused();
+            if (!socket || !sessionId) return;
+            sendTelemetry('help', {
+                message: text || 'Student is confused',
+                current_answer: document.getElementById('codeArea')?.value || '',
+            });
+            setHintButtonsBusy(true);
+            hintTimeout = setTimeout(() => {
+                clearHintBusy();
+                showTeacherMsg('Hint took too long — try again.');
+            }, 20000);
         }
 
         // ── QUIZ ──────────────────────────────────────────────────────
@@ -1590,7 +1644,11 @@
                 if (checked) answers[String(i)] = checked.value;
             });
 
-            const quizBtn = document.getElementById('quizSubmitBtn'); if (quizBtn) { quizBtn.disabled = true; quizBtn.innerHTML = '<span class="spinner"></span> Submitting…'; }
+            const quizBtn = document.getElementById('quizSubmitBtn');
+            if (quizBtn) {
+                quizBtn.disabled = true;
+                quizBtn.innerHTML = '<span class="spinner"></span> Submitting…';
+            }
             try {
                 const res = await fetch(`${API}/api/sessions/${sessionId}/submit-quiz`, {
                     method: 'POST',
@@ -1614,12 +1672,29 @@
                     if (m) m.remove();
                     window._quizQuestions = null;
                 }, 4000);
-            } catch (e) { const fb = document.getElementById('quizFeedback'); if (fb) { fb.style.display='block'; fb.setAttribute('role','alert'); fb.style.color='var(--red)'; fb.textContent='Quiz submission error: ' + e.message; } if (quizBtn) { quizBtn.disabled=false; quizBtn.textContent='📝 Submit Answers'; }
+            } catch (e) {
+                const fb = document.getElementById('quizFeedback');
+                if (fb) {
+                    fb.style.display = 'block';
+                    fb.setAttribute('role', 'alert');
+                    fb.style.color = 'var(--red)';
+                    fb.textContent = 'Quiz submission error: ' + e.message;
+                }
+                if (quizBtn) {
+                    quizBtn.disabled = false;
+                    quizBtn.textContent = '📝 Submit Answers';
+                }
             }
         }
 
         // ── TEACHER MESSAGE ───────────────────────────────────────────
-        document.addEventListener('keydown', e => { if (e.key === 'Escape') { closeConfused(); document.getElementById('quizModal')?.remove(); } if ((e.key === 'Enter' || e.key === ' ') && e.target.classList.contains('task-item')) { e.preventDefault(); e.target.click(); } });
+        document.addEventListener('keydown', e => {
+            if (e.key === 'Escape') closeConfused();
+            if ((e.key === 'Enter' || e.key === ' ') && e.target.classList.contains('task-item')) {
+                e.preventDefault();
+                e.target.click();
+            }
+        });
 
         function showTeacherMsg(text) {
             const el = document.getElementById('teacherMsg');

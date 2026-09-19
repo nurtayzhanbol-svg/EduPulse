@@ -220,13 +220,39 @@ function setTopics(report){
   });
 }
 
-function hideReportSections(){ document.querySelector('.kpi-row').style.display='none'; document.querySelector('.fb-grid').style.display='none'; document.querySelector('.grid').style.display='none'; }
-function showEmptyState(report){ const a=report.analytics||{}; const c=report.counts||{}; const noActivity=Number(a.total_students||0)===0 && Number(a.total_hints||0)===0 && Object.values(c).every(v=>Number(v||0)===0); if(!noActivity)return; document.querySelector('.fb-grid').innerHTML='<div class="empty-state"><svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="var(--teal)" stroke-width="1.5"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg><h2>No activity was recorded in this session</h2><p>No students joined or no work was submitted, so there is nothing to analyse. Start a new session from the dashboard.</p><a class="btn" href="teacher.html">Back to Dashboard</a></div>'; document.querySelector('.grid').innerHTML=''; }
+function hideReportSections() {
+  document.querySelector('.kpi-row').style.display = 'none';
+  document.querySelector('.fb-grid').style.display = 'none';
+  document.querySelector('.grid').style.display = 'none';
+}
+
+function showEmptyState(report) {
+  const a = report.analytics || {};
+  const c = report.counts || {};
+  const noActivity = Number(a.total_students || 0) === 0
+    && Number(a.total_hints || 0) === 0
+    && Object.values(c).every(v => Number(v || 0) === 0);
+  if (!noActivity) return;
+  document.querySelector('.fb-grid').innerHTML = '<div class="empty-state"><svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="var(--teal)" stroke-width="1.5"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg><h2>No activity was recorded in this session</h2><p>No students joined or no work was submitted, so there is nothing to analyse. Start a new session from the dashboard.</p><a class="btn" href="teacher.html">Back to Dashboard</a></div>';
+  document.querySelector('.grid').innerHTML = '';
+}
 
 async function init(){
   const params = new URLSearchParams(window.location.search);
   const sid = (params.get('session') || '').trim();
-  if (!sid) { byId('errorBox').style.display = 'block'; byId('errorBox').textContent = 'Missing session id in URL. '; const a=document.createElement('a'); a.href='teacher.html'; a.className='btn'; a.textContent='Back to Dashboard'; byId('errorBox').appendChild(a); hideReportSections(); byId('insightBox').textContent=''; document.querySelector('.page').setAttribute('aria-busy','false'); return; }
+  if (!sid) {
+    byId('errorBox').style.display = 'block';
+    byId('errorBox').textContent = 'Missing session id in URL. ';
+    const a = document.createElement('a');
+    a.href = 'teacher.html';
+    a.className = 'btn';
+    a.textContent = 'Back to Dashboard';
+    byId('errorBox').appendChild(a);
+    hideReportSections();
+    byId('insightBox').textContent = '';
+    document.querySelector('.page').setAttribute('aria-busy', 'false');
+    return;
+  }
   try {
     const res = await fetch(`${API}/api/sessions/${encodeURIComponent(sid)}/report`);
     const report = await res.json();
@@ -237,10 +263,19 @@ async function init(){
     setInsight(report);
     setBreakdown(report);
     setTimeline(report);
-    setTopics(report); showEmptyState(report);
+    setTopics(report);
+    showEmptyState(report);
     document.querySelector('.page').setAttribute('aria-busy','false');
   } catch (e) {
-    byId('errorBox').style.display = 'block'; byId('errorBox').textContent = e.message || String(e) + ' '; const a=document.createElement('a'); a.href='teacher.html'; a.className='btn'; a.textContent='Back to Dashboard'; byId('errorBox').appendChild(a); hideReportSections(); document.querySelector('.page').setAttribute('aria-busy','false');
+    byId('errorBox').style.display = 'block';
+    byId('errorBox').textContent = e.message || String(e) + ' ';
+    const a = document.createElement('a');
+    a.href = 'teacher.html';
+    a.className = 'btn';
+    a.textContent = 'Back to Dashboard';
+    byId('errorBox').appendChild(a);
+    hideReportSections();
+    document.querySelector('.page').setAttribute('aria-busy', 'false');
   }
 }
 

@@ -350,7 +350,15 @@
         .form-input:focus-visible { outline: 2px solid var(--teal); outline-offset: 2px; }
         :focus-visible { outline: 2px solid var(--teal); outline-offset: 2px; }
         button, a, input, textarea, [tabindex] { outline-offset: 2px; }
-        button.opt-chip { font: inherit; width: 100%; color: inherit; }
+        button.opt-chip {
+            background: var(--ivory);
+            border: 1.5px solid var(--border);
+            font: inherit;
+            width: 100%;
+            color: inherit;
+            text-align: center;
+            cursor: pointer;
+        }
         .spinner { display: inline-flex; width: 14px; height: 14px; border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%; animation: spin .7s linear infinite; }
         @keyframes spin { to { transform: rotate(360deg); } }
 
@@ -1172,7 +1180,7 @@
             .modal { padding: 1.25rem; }
             .join-link-inner { align-items: stretch; }
         }
-        @media (max-width: 600px) { .sm-metrics { grid-template-columns: repeat(2, 1fr) !important; } }
+        @media (max-width: 600px) { .sm-metrics { grid-template-columns: repeat(2, 1fr); } }
         @media (max-width: 480px) {
             .metrics-row, .report-grid { grid-template-columns: 1fr; }
             .nav-session-name { display:none; }
@@ -1234,30 +1242,30 @@
             </div>
             <label class="form-label" id="modeLabel">Question Mode</label>
             <div class="option-group" id="modeToggle" role="radiogroup" aria-labelledby="modeLabel">
-                <div class="opt-chip active" role="radio" aria-checked="true" tabindex="0" data-value="practical" onclick="selectOption('mode', this)">
+                <button type="button" class="opt-chip active" role="radio" aria-checked="true" data-value="practical" onclick="selectOption('mode', this)">
                     <span class="opt-icon">⚙️</span>
                     <span class="opt-label">Practical</span>
-                </div>
-                <div class="opt-chip" role="radio" aria-checked="false" tabindex="0" data-value="theoretical" onclick="selectOption('mode', this)">
+                </button>
+                <button type="button" class="opt-chip" role="radio" aria-checked="false" data-value="theoretical" onclick="selectOption('mode', this)">
                     <span class="opt-icon">📖</span>
                     <span class="opt-label">Theory</span>
-                </div>
+                </button>
             </div>
 
             <label class="form-label" id="difficultyLabel">Difficulty Level</label>
             <div class="option-group" id="difficultyToggle" role="radiogroup" aria-labelledby="difficultyLabel">
-                <div class="opt-chip active" role="radio" aria-checked="true" tabindex="0" data-value="easy" onclick="selectOption('difficulty', this)">
+                <button type="button" class="opt-chip active" role="radio" aria-checked="true" data-value="easy" onclick="selectOption('difficulty', this)">
                     <span class="opt-icon">🟢</span>
                     <span class="opt-label">Easy</span>
-                </div>
-                <div class="opt-chip" role="radio" aria-checked="false" tabindex="0" data-value="medium" onclick="selectOption('difficulty', this)">
+                </button>
+                <button type="button" class="opt-chip" role="radio" aria-checked="false" data-value="medium" onclick="selectOption('difficulty', this)">
                     <span class="opt-icon">🟡</span>
                     <span class="opt-label">Medium</span>
-                </div>
-                <div class="opt-chip" role="radio" aria-checked="false" tabindex="0" data-value="hard" onclick="selectOption('difficulty', this)">
+                </button>
+                <button type="button" class="opt-chip" role="radio" aria-checked="false" data-value="hard" onclick="selectOption('difficulty', this)">
                     <span class="opt-icon">🔴</span>
                     <span class="opt-label">Hard</span>
-                </div>
+                </button>
             </div>
             <input type="hidden" id="createModeInput" value="practical" />
             <input type="hidden" id="createDifficultyInput" value="easy" />
@@ -1509,8 +1517,18 @@
             const nav = document.getElementById('navConn');
             const icons = { connected: '●', reconnecting: '⟳', error: '✕', connecting: '⟳' };
             const icon = icons[state] || '●';
-            if (b) { b.style.display = 'flex'; b.className = 'conn-bar ' + state; document.getElementById('connText').textContent = txt; document.getElementById('connIcon').textContent = icon; }
-            if (nav) { nav.style.display = 'flex'; nav.className = 'live-chip ' + state; document.getElementById('navConnText').textContent = txt; nav.querySelector('.conn-state-icon').textContent = icon; }
+            if (b) {
+                b.style.display = 'flex';
+                b.className = 'conn-bar ' + state;
+                document.getElementById('connText').textContent = txt;
+                document.getElementById('connIcon').textContent = icon;
+            }
+            if (nav) {
+                nav.style.display = 'flex';
+                nav.className = 'live-chip ' + state;
+                document.getElementById('navConnText').textContent = txt;
+                nav.querySelector('.conn-state-icon').textContent = icon;
+            }
         }
 
         async function parseApiError(res) {
@@ -1520,13 +1538,18 @@
                 if (Array.isArray(detail)) return detail.map(item => item.msg || String(item)).join('; ');
                 if (typeof detail === 'string' && detail) return detail;
                 return `HTTP ${res.status}`;
-            } catch (_) { return `HTTP ${res.status}`; }
+            } catch (_) {
+                return `HTTP ${res.status}`;
+            }
         }
 
         function setCreateBusy(busy) {
-            const btn = document.getElementById('createBtn'); const zone = document.getElementById('dropZone');
-            btn.disabled = busy; zone?.setAttribute('aria-busy', String(busy));
-            document.getElementById('courseName').disabled = busy; document.getElementById('createPdfInput').disabled = busy;
+            const btn = document.getElementById('createBtn');
+            const zone = document.getElementById('dropZone');
+            btn.disabled = busy;
+            zone?.setAttribute('aria-busy', String(busy));
+            document.getElementById('courseName').disabled = busy;
+            document.getElementById('createPdfInput').disabled = busy;
             btn.innerHTML = busy ? '<span class="spinner"></span> Uploading & Analysing…' : 'Launch Session →';
         }
 
@@ -1536,15 +1559,35 @@
             const fileInput = document.getElementById('createPdfInput');
             const mode = document.getElementById('createModeInput').value;
             const difficulty = document.getElementById('createDifficultyInput').value;
-            if (!fileInput.files.length) { status.textContent = '⚠️ Please select a PDF file.'; status.style.color = 'var(--red)'; status.setAttribute('role', 'alert'); return; }
-            setCreateBusy(true); status.textContent = 'Processing PDF with AI — this may take 10-20 seconds…'; status.style.color = 'var(--text-dim)'; status.removeAttribute('role'); setConn('reconnecting', 'Creating session…');
-            const formData = new FormData(); formData.append('file', fileInput.files[0]); formData.append('task_level', difficulty); formData.append('mode', mode); formData.append('quiz_difficulty', difficulty);
+            if (!fileInput.files.length) {
+                status.textContent = '⚠️ Please select a PDF file.';
+                status.style.color = 'var(--red)';
+                status.setAttribute('role', 'alert');
+                return;
+            }
+            setCreateBusy(true);
+            status.textContent = 'Processing PDF with AI — this may take 10-20 seconds…';
+            status.style.color = 'var(--text-dim)';
+            status.removeAttribute('role');
+            const formData = new FormData();
+            formData.append('file', fileInput.files[0]);
+            formData.append('task_level', difficulty);
+            formData.append('mode', mode);
+            formData.append('quiz_difficulty', difficulty);
             try {
                 const res = await fetch(`${API}/api/sessions/create-from-pdf`, { method: 'POST', body: formData });
                 if (!res.ok) throw new Error(await parseApiError(res));
-                const data = await res.json(); sessionId = data.session_id; showDashboard(data); initSocket(sessionId);
+                const data = await res.json();
+                sessionId = data.session_id;
+                showDashboard(data);
+                initSocket(sessionId);
             } catch (e) {
-                status.textContent = e.message === 'Failed to fetch' ? 'Could not reach the server. Check the backend is running.' : '❌ ' + e.message; status.style.color = 'var(--red)'; status.setAttribute('role', 'alert'); setConn('error', 'Disconnected — live updates paused'); setCreateBusy(false);
+                status.textContent = e.message === 'Failed to fetch'
+                    ? 'Could not reach the server. Check the backend is running.'
+                    : '❌ ' + e.message;
+                status.style.color = 'var(--red)';
+                status.setAttribute('role', 'alert');
+                setCreateBusy(false);
             }
         }
 
@@ -1557,7 +1600,8 @@
             document.getElementById('navSessionInfo').style.display = 'flex';
             document.getElementById('navSessionId').textContent = 'SESSION ' + sessionId;
             document.getElementById('navSessionName').textContent = name;
-            document.getElementById('liveChip').style.display = 'flex'; document.getElementById('navConn').style.display = 'flex';
+            document.getElementById('liveChip').style.display = 'flex';
+            document.getElementById('navConn').style.display = 'flex';
             document.getElementById('endBtn').style.display = 'flex';
 
             // Show join link
@@ -1724,7 +1768,7 @@
             const prog = Math.round(s.progress || 0);
             const pasteCount = s.paste_events_count || 0;
 
-            return `<div class="student-card ${cardCls}" onclick="openStudentModal('${s.name.replace(/'/g, "\\'")}')" style="cursor: pointer; position: relative;">
+            return `<div class="student-card ${cardCls}" role="button" tabindex="0" aria-label="Open details for ${s.name.replace(/"/g, '&quot;')}" onclick="openStudentModal('${s.name.replace(/'/g, "\\'")}')" style="cursor: pointer; position: relative;">
         <div class="s-head">
           <div class="s-info">
             <div class="avatar" style="background:${bg};color:${clr}">${initials}</div>
@@ -1853,17 +1897,57 @@
         // ── End Session ───────────────────────────────────────────────
         async function openEndModal() {
             document.getElementById('endModal').classList.add('show');
-            const endBtn = document.getElementById('endBtn'); endBtn.disabled = true;
-            const list = Object.values(students); document.getElementById('reportGrid').innerHTML = `<div class="report-stat"><div class="report-val" style="color:var(--teal)">${classStats.avg || 0}%</div><div class="report-lbl">Class Understanding</div></div><div class="report-stat"><div class="report-val">${list.length}</div><div class="report-lbl">Students</div></div><div class="report-stat"><div class="report-val" style="color:var(--teal)">${classStats.hints || 0}</div><div class="report-lbl">AI Hints Sent</div></div><div class="report-stat"><div class="report-val" style="color:var(--red)">${classStats.flags || 0}</div><div class="report-lbl">Integrity Flags</div></div>`;
-            const summary = document.getElementById('reportSummary'); summary.removeAttribute('role'); summary.innerHTML = '<span class="spinner"></span> Generating AI report…';
-            try { const res = await fetch(`${API}/api/sessions/${sessionId}/end`, { method: 'POST' }); if (!res.ok) throw new Error(await parseApiError(res)); const data = await res.json(); renderReportGridFromAnalytics(data.analytics || {}); renderSessionAnalytics(data.analytics || {}); renderInsights(data.summary || 'No summary available.', data.analytics || {}); }
-            catch (e) { summary.textContent = 'Could not end session: ' + e.message; summary.style.color = 'var(--red)'; summary.setAttribute('role', 'alert'); summary.insertAdjacentHTML('beforeend', '<br><button class="btn btn-ghost" style="margin-top:.7rem" onclick="openEndModal()">Retry</button>'); }
-            finally { endBtn.disabled = false; }
+            const endBtn = document.getElementById('endBtn');
+            endBtn.disabled = true;
+            const list = Object.values(students);
+            document.getElementById('reportGrid').innerHTML = `<div class="report-stat"><div class="report-val" style="color:var(--teal)">${classStats.avg || 0}%</div><div class="report-lbl">Class Understanding</div></div><div class="report-stat"><div class="report-val">${list.length}</div><div class="report-lbl">Students</div></div><div class="report-stat"><div class="report-val" style="color:var(--teal)">${classStats.hints || 0}</div><div class="report-lbl">AI Hints Sent</div></div><div class="report-stat"><div class="report-val" style="color:var(--red)">${classStats.flags || 0}</div><div class="report-lbl">Integrity Flags</div></div>`;
+            const summary = document.getElementById('reportSummary');
+            summary.removeAttribute('role');
+            summary.innerHTML = '<span class="spinner"></span> Generating AI report…';
+            try {
+                const res = await fetch(`${API}/api/sessions/${sessionId}/end`, { method: 'POST' });
+                if (!res.ok) throw new Error(await parseApiError(res));
+                const data = await res.json();
+                renderReportGridFromAnalytics(data.analytics || {});
+                renderSessionAnalytics(data.analytics || {});
+                renderInsights(data.summary || 'No summary available.', data.analytics || {});
+            }
+            catch (e) {
+                summary.textContent = 'Could not end session: ' + e.message;
+                summary.style.color = 'var(--red)';
+                summary.setAttribute('role', 'alert');
+                summary.insertAdjacentHTML('beforeend', '<br><button class="btn btn-ghost" style="margin-top:.7rem" onclick="openEndModal()">Retry</button>');
+            }
+            finally {
+                endBtn.disabled = false;
+            }
         }
 
         async function sendKnowledgeCheck() {
-            const btn = document.getElementById('quizBtn'); const status = document.getElementById('quizStatus'); btn.disabled = true; btn.innerHTML = '<span class="spinner"></span> Generating quiz…'; status.textContent = ''; status.removeAttribute('role');
-            try { const mode = document.getElementById('createModeInput').value; const difficulty = document.getElementById('createDifficultyInput').value; const res = await fetch(`${API}/api/sessions/${sessionId}/generate-quiz?num_questions=5&difficulty=${encodeURIComponent(difficulty)}&mode=${encodeURIComponent(mode)}`, { method: 'POST' }); if (!res.ok) throw new Error(await parseApiError(res)); const data = await res.json(); const n = (data.questions || []).length || data.num_questions || 0; pushFeed('info', `Quiz with ${n} questions sent to students.`); status.textContent = `Sent ${n} questions`; status.style.color = 'var(--teal)'; } catch (e) { status.textContent = e.message; status.style.color = 'var(--red)'; status.setAttribute('role', 'alert'); } finally { btn.disabled = false; btn.innerHTML = '🧠 Send Knowledge Check'; }
+            const btn = document.getElementById('quizBtn');
+            const status = document.getElementById('quizStatus');
+            btn.disabled = true;
+            btn.innerHTML = '<span class="spinner"></span> Generating quiz…';
+            status.textContent = '';
+            status.removeAttribute('role');
+            try {
+                const mode = document.getElementById('createModeInput').value;
+                const difficulty = document.getElementById('createDifficultyInput').value;
+                const res = await fetch(`${API}/api/sessions/${sessionId}/generate-quiz?num_questions=5&difficulty=${encodeURIComponent(difficulty)}&mode=${encodeURIComponent(mode)}`, { method: 'POST' });
+                if (!res.ok) throw new Error(await parseApiError(res));
+                const data = await res.json();
+                const n = (data.questions || []).length || data.num_questions || 0;
+                pushFeed('info', `Quiz with ${n} questions sent to students.`);
+                status.textContent = `Sent ${n} questions`;
+                status.style.color = 'var(--teal)';
+            } catch (e) {
+                status.textContent = e.message;
+                status.style.color = 'var(--red)';
+                status.setAttribute('role', 'alert');
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = '🧠 Send Knowledge Check';
+            }
         }
 
         function closeEndModal() { document.getElementById('endModal').classList.remove('show'); }
@@ -1920,7 +2004,6 @@
         document.addEventListener('keydown', (e) => {
             if (e.key === 'Escape') { closeEndModal(); closeStudentModal(); }
             if ((e.key === 'Enter' || e.key === ' ') && e.target.classList.contains('student-card')) { e.preventDefault(); e.target.click(); }
-            if ((e.key === 'Enter' || e.key === ' ') && e.target.classList.contains('opt-chip')) { e.preventDefault(); e.target.click(); }
         });
 
     </script>
