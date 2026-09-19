@@ -1452,6 +1452,11 @@
                 renderTaskList();
             });
 
+            // A message typed by the teacher for this student only — not an AI hint
+            socket.on('teacher_message', (data) => {
+                showTeacherMsg('Message from your teacher: ' + (data.message || ''), 20000);
+            });
+
             // Session ended
             socket.on('session_ended', () => {
                 sessionOver = true;
@@ -1791,12 +1796,13 @@
             }
         });
 
-        function showTeacherMsg(text) {
+        function showTeacherMsg(text, ms = 8000) {
             const el = document.getElementById('teacherMsg');
             if (!el) return;
             el.textContent = text;
             el.style.display = 'block';
-            setTimeout(() => { el.style.display = 'none'; }, 8000);
+            clearTimeout(showTeacherMsg.timer);
+            showTeacherMsg.timer = setTimeout(() => { el.style.display = 'none'; }, ms);
         }
     </script>
 </body>

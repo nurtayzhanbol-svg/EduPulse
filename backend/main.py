@@ -18,7 +18,7 @@ from fastapi.responses import FileResponse, JSONResponse, Response
 from models import (
     CreateSessionRequest, CreateSessionResponse,
     JoinSessionRequest, EndSessionResponse, TelemetryEvent,
-    UpdateTaskRequest,
+    UpdateTaskRequest, LaunchSessionRequest, NudgeRequest,
 )
 import session_manager
 from auth import bearer_token, require_student, require_teacher, token_matches
@@ -154,6 +154,7 @@ def _build_session_analytics(session) -> dict:
             "quiz_submitted_count": 0,
             "quiz_avg_correct_pct": None,
             "total_large_pastes": 0,
+            "teacher_intervention_count": 0,
             "bars": [],
             "insights": [],
         }
@@ -171,6 +172,7 @@ def _build_session_analytics(session) -> dict:
         1 for s in students for p in s.paste_events if p.get("length", 0) >= 200
     )
     students_with_help = sum(1 for s in students if s.help_requests)
+    teacher_intervention_count = sum(len(s.teacher_nudges) for s in students)
     bars = [
         {"label": "Quiz submitted", "value": float(quiz_submitted_count), "max": float(total_students), "unit": f"/{total_students}"},
         {"label": "Quiz avg correct", "value": quiz_avg_correct_pct if quiz_avg_correct_pct is not None else 0.0, "max": 100.0, "unit": "%" if quiz_avg_correct_pct is not None else " (no evidence yet)"},
@@ -197,6 +199,7 @@ def _build_session_analytics(session) -> dict:
         "quiz_submitted_count": quiz_submitted_count,
         "quiz_avg_correct_pct": quiz_avg_correct_pct,
         "total_large_pastes": total_large_pastes,
+        "teacher_intervention_count": teacher_intervention_count,
         "bars": bars,
         "insights": insights,
     }
@@ -258,6 +261,7 @@ def _build_report_payload(session) -> dict:
             "name": s.name,
             "help_requests": len(s.help_requests),
             "hints": int(s.hints_given),
+            "teacher_nudges": len(s.teacher_nudges),
             "quiz": (
                 {
                     "correct": s.quiz_correct,
@@ -349,6 +353,7 @@ async def create_session_from_pdf(
     )
 
     session, teacher_token = session_manager.create_session(generated_task_description, normalized_level)
+    session.launched = False  # the teacher reviews the generated task first
     session.quiz_mode_preference = normalized_mode
     session.quiz_difficulty_preference = normalized_quiz_difficulty
     session.pdf_text = result["text"]
@@ -369,6 +374,7 @@ async def create_session_from_pdf(
         "word_count": result["word_count"],
         "mode": session.quiz_mode_preference,
         "difficulty": session.quiz_difficulty_preference,
+        "launched": session.launched,
     }
 
 
@@ -396,6 +402,9 @@ async def join_session(session_id: str, req: JoinSessionRequest, request: Reques
         raise HTTPException(400, "Student name is required")
     if req.consent is not True:
         raise HTTPException(400, "Consent to the data notice is required to join")
+    pending = session_manager.get_session(session_id)
+    if pending is not None and pending.active and not pending.launched:
+        raise HTTPException(409, "Your teacher has not launched this session yet. Please wait and try again.")
     student, token = session_manager.join_session(session_id, name, bearer_token(request))
     if student is None:
         raise HTTPException(404, "Session not found or inactive")
@@ -429,6 +438,51 @@ async def update_task(session_id: str, req: UpdateTaskRequest, request: Request)
     return {"task_description": description}
 
 
+@app.post("/api/sessions/{session_id}/launch")
+async def launch_session(session_id: str, req: LaunchSessionRequest, request: Request):
+    """Open the session to students once the teacher has reviewed (and maybe edited) the task."""
+    session = session_manager.get_session(session_id)
+    if session is None:
+        raise HTTPException(404, "Session not found")
+    require_teacher(request, session)
+    if not session.active:
+        raise HTTPException(409, "Session has already ended")
+    if req.task_description is not None:
+        description = req.task_description.strip()
+        if not description:
+            raise HTTPException(400, "Task description cannot be empty")
+        session.task_description = description
+    session.launched = True
+    session_manager.persist_session(session)
+    await broadcast_dashboard(session)
+    return {"launched": True, "task_description": session.task_description,
+            "join_url": f"/student.html?session={session.session_id}"}
+
+
+@app.post("/api/sessions/{session_id}/students/{student_id}/nudge")
+async def nudge_student(session_id: str, student_id: str, req: NudgeRequest, request: Request):
+    """Teacher sends a short message to one student. Delivered to that student's room only
+    and logged as a teacher intervention."""
+    session = session_manager.get_session(session_id)
+    if session is None:
+        raise HTTPException(404, "Session not found")
+    require_teacher(request, session)
+    if not session.active:
+        raise HTTPException(409, "Session has already ended")
+    student = session.students.get(student_id)
+    if student is None:
+        raise HTTPException(404, "Student not found")
+    message = " ".join(req.message.split())
+    if not message:
+        raise HTTPException(400, "Message cannot be empty")
+    entry = student.log_teacher_nudge(message, datetime.now().timestamp())
+    session_manager.persist_session(session)
+    await sio.emit("teacher_message", {"message": message, "timestamp": entry["ts"]},
+                   room=student_room(session_id, student_id))
+    await broadcast_dashboard(session)
+    return {"student_id": student_id, "message": message, "teacher_nudges": len(student.teacher_nudges)}
+
+
 @app.post("/api/sessions/{session_id}/end", response_model=EndSessionResponse)
 async def end_session(session_id: str, request: Request):
     session = session_manager.get_session(session_id)
@@ -441,10 +495,10 @@ async def end_session(session_id: str, request: Request):
     session.summary = summary
     session.analytics = analytics
     session_manager.persist_session(session)
-    # Broadcast session ended to students (session room) and teacher tabs (teacher room)
-    payload = {"summary": summary, "analytics": analytics}
-    await sio.emit("session_ended", payload, room=session_id)
-    await sio.emit("session_ended", payload, room=teacher_room(session_id))
+    # Students only learn that the session is over; class analytics stay with the teacher.
+    await sio.emit("session_ended", {}, room=session_id)
+    await sio.emit("session_ended", {"summary": summary, "analytics": analytics},
+                   room=teacher_room(session_id))
     return EndSessionResponse(summary=summary, analytics=analytics)
 
 
@@ -455,9 +509,9 @@ async def delete_session(session_id: str, request: Request):
     if session is None:
         raise HTTPException(404, "Session not found")
     require_teacher(request, session)
-    payload = {"summary": "Session data deleted by the teacher.", "analytics": {}}
-    await sio.emit("session_ended", payload, room=session_id)
-    await sio.emit("session_ended", payload, room=teacher_room(session_id))
+    await sio.emit("session_ended", {}, room=session_id)
+    await sio.emit("session_ended", {"summary": "Session data deleted by the teacher.", "analytics": {}},
+                   room=teacher_room(session_id))
     session_manager.delete_session(session_id)
     return Response(status_code=204)
 
@@ -731,6 +785,9 @@ async def join_room(sid, data):
         await sio.emit("dashboard_update", session.to_dict(include_code=True), to=sid)
         return
 
+    if not session.launched:
+        await sio.emit("error", {"message": "Your teacher has not launched this session yet."}, to=sid)
+        return
     student = session_manager.authenticate_student(session_id, student_id, data.get("student_token"))
     if student is None:
         await sio.emit("error", {"message": "Invalid student token"}, to=sid)
