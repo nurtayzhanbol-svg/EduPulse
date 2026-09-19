@@ -1440,15 +1440,18 @@
         let students = {};
         const TEACHER_TOKEN_KEY = 'edupulse_teacher_token';
         const TEACHER_SESSION_KEY = 'edupulse_teacher_session';
+        const TEACHER_COURSE_KEY = 'edupulse_teacher_course';
         function teacherToken() { return sessionStorage.getItem(TEACHER_TOKEN_KEY) || ''; }
         function rememberTeacherSession(sid, token) {
             sessionStorage.setItem(TEACHER_SESSION_KEY, sid);
             sessionStorage.setItem(TEACHER_TOKEN_KEY, token || '');
+            sessionStorage.setItem(TEACHER_COURSE_KEY, document.getElementById('courseName').value || '');
             history.replaceState(null, '', `teacher.html?session=${encodeURIComponent(sid)}`);
         }
         function forgetTeacherSession() {
             sessionStorage.removeItem(TEACHER_SESSION_KEY);
             sessionStorage.removeItem(TEACHER_TOKEN_KEY);
+            sessionStorage.removeItem(TEACHER_COURSE_KEY);
             history.replaceState(null, '', 'teacher.html');
         }
         function authHeaders(extra = {}) { return { ...extra, 'Authorization': 'Bearer ' + teacherToken() }; }
@@ -1671,7 +1674,8 @@
 
         // ── Show Dashboard ────────────────────────────────────────────
         function showDashboard(data, resumed = false) {
-            const name = document.getElementById('courseName').value || 'Session';
+            const name = document.getElementById('courseName').value
+                || (resumed && sessionStorage.getItem(TEACHER_COURSE_KEY)) || 'Session';
             document.getElementById('setupPanel').style.display = 'none';
             document.getElementById('dashboard').style.display = 'block';
             document.getElementById('navDivider').style.display = 'block';
