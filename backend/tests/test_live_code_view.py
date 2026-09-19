@@ -70,7 +70,7 @@ async def test_dashboard_with_code_is_not_broadcast_to_the_student_room(sio_spy)
     assert session.session_id not in rooms
 
 
-async def test_unauthenticated_session_endpoint_omits_code():
+async def test_unauthenticated_session_endpoint_omits_students_and_code():
     session, _ = session_manager.create_session("Sum a list", "easy")
     alice, _ = session_manager.join_session(session.session_id, "Alice")
     alice.current_code = CODE
@@ -78,7 +78,7 @@ async def test_unauthenticated_session_endpoint_omits_code():
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as c:
         r = await c.get(f"/api/sessions/{session.session_id}")
-    payload = r.json()["students"][alice.student_id]
-    assert payload["name"] == "Alice"
-    assert "current_code" not in payload
-    assert payload["current_code_lines"] == 3
+    body = r.json()
+    assert body["student_count"] == 1
+    assert "students" not in body
+    assert "Alice" not in r.text and CODE not in r.text

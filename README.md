@@ -126,6 +126,8 @@ With `none (mock hints)` nothing leaves the server.
   per-student room. The shared session room carries only `quiz_available`, `task_updated` and an
   empty `session_ended`; class analytics go to the teacher room only. Students never see other
   students' hints, alerts, quiz scores or dashboard state.
+- `GET /api/sessions/{id}` without a token returns only the task, level, lifecycle flags and a student
+  count — no names, IDs, alerts or per-student metrics. The full payload requires the teacher token.
 - Sessions created from a PDF stay closed until the teacher has reviewed/edited the generated task
   and pressed Launch (`POST /api/sessions/{id}/launch`); joining earlier returns 409.
 - Large-paste alerts (200+ characters pasted at once) are a neutral, teacher-only, dismissable

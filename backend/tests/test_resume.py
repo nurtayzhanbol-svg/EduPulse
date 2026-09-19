@@ -49,7 +49,7 @@ def sio_spy(monkeypatch):
 # ── GET /api/sessions/{id} as the teacher ─────────────────────────
 
 
-async def test_public_get_session_is_unchanged_without_token(client):
+async def test_public_get_session_has_no_role_or_student_data(client):
     sid = await create(client)
     r = await client.post(f"/api/sessions/{sid}/join", json={"student_name": "Alice", "consent": True})
     alice_id = r.json()["student_id"]
@@ -59,9 +59,9 @@ async def test_public_get_session_is_unchanged_without_token(client):
     assert r.status_code == 200
     body = r.json()
     assert "role" not in body
-    assert body["students"][alice_id]["name"] == "Alice"
-    assert "current_code" not in body["students"][alice_id]
-    assert body["students"][alice_id]["current_code_lines"] == 2
+    assert "students" not in body
+    assert body["student_count"] == 1
+    assert "Alice" not in r.text and "print" not in r.text
 
 
 async def test_teacher_token_gets_full_dashboard_payload(client):

@@ -213,6 +213,29 @@ def test_teacher_nudges_are_bounded():
 # ── Student isolation ─────────────────────────────────────────────
 
 
+async def test_public_session_endpoint_exposes_no_student_data(client):  # noqa: F811
+    sid = await create(client)
+    ann = (await client.post(f"/api/sessions/{sid}/join", json=student_payload("Ann"))).json()["student_id"]
+    session = session_manager.get_session(sid)
+    session.students[ann].help_requests = ["why does this loop stop?"]
+    session.students[ann].current_code = "print('secret')"
+    session.alerts.append({"type": "large_paste", "student_id": ann, "student_name": "Ann"})
+
+    r = await client.get(f"/api/sessions/{sid}")
+    assert r.status_code == 200
+    body = r.json()
+    assert set(body) == {"session_id", "task_description", "task_level", "pause_threshold_seconds",
+                         "has_material", "active", "launched", "student_count"}
+    assert body["student_count"] == 1
+    raw = json.dumps(body)
+    for forbidden in ("Ann", ann, "students", "alerts", "loop", "secret", "summary"):
+        assert forbidden not in raw, forbidden
+
+    # The teacher token still gets the full payload.
+    full = (await client.get(f"/api/sessions/{sid}", headers=th(sid))).json()
+    assert full["students"][ann]["name"] == "Ann" and full["role"] == "teacher"
+
+
 async def test_student_socket_never_receives_another_students_name_or_state(client, sio_spy):  # noqa: F811
     """Across a lesson (joins, help, paste, idle, code, quiz, nudge, task edit, end), everything
     Bob's socket could receive is inspected: it must never mention Alice or carry class state."""
