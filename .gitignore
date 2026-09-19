@@ -21,3 +21,4 @@ edupulse.db-*
 *.db
 *.db-wal
 *.db-shm
+.vercel
