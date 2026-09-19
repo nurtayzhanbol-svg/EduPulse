@@ -288,6 +288,15 @@
             transform: translateY(-1px);
             box-shadow: var(--shadow-md)
         }
+        .join-btn:disabled { opacity:.55; cursor:not-allowed; transform:none; }
+        :focus-visible { outline: 2px solid var(--teal); outline-offset: 2px; }
+        .code-ta:focus-visible { outline-offset: -2px; }
+        .sr-only { position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; border:0; }
+        .spinner { display:inline-flex; width:14px; height:14px; border:2px solid currentColor; border-right-color:transparent; border-radius:50%; animation:spin .7s linear infinite; vertical-align:-2px; }
+        @keyframes spin { to { transform:rotate(360deg); } }
+        .help-btn:disabled, .ht-more:disabled, .modal-submit:disabled { opacity:.55; cursor:not-allowed; transform:none; }
+        [data-tip] { position:relative; }
+        [data-tip]:hover::after, [data-tip]:focus-visible::after { content:attr(data-tip); position:absolute; z-index:500; left:50%; bottom:calc(100% + 8px); transform:translateX(-50%); white-space:normal; width:max-content; max-width:min(260px, 90vw); background:var(--navy); color:#fff; border-radius:6px; padding:5px 8px; font-size:.7rem; pointer-events:none; }
 
         .err-msg {
             font-size: .8rem;
@@ -652,11 +661,18 @@
             caret-color: var(--teal)
         }
 
-        @media (max-width: 1100px) {
-            .workspace-layout {
-                grid-template-columns: 340px minmax(0, 1fr)
-            }
+        @media (max-width: 1100px) { .workspace-layout { grid-template-columns: 340px minmax(0, 1fr) } }
+        @media (max-width: 768px) {
+            .workspace-layout { grid-template-columns:1fr; grid-template-rows:auto minmax(0,1fr); height:calc(100vh - 58px); }
+            .left-panel { max-height:42vh; border-right:none; border-bottom:1px solid var(--border); }
+            .nav { padding:0 .9rem; gap:8px; }
+            .student-name { display:none; }
+            .hint-toast { left:1rem; right:1rem; max-width:none; bottom:1rem; }
+            .join-card { padding:1.5rem; }
+            .modal { width:calc(100vw - 2rem); }
+            #pasteWarning { right:1rem !important; left:1rem; }
         }
+        @media (max-width: 480px) { .workspace-layout { grid-template-columns:1fr; } }
 
         .code-ta::-webkit-scrollbar {
             width: 4px
@@ -692,10 +708,9 @@
             border-radius: 50%
         }
 
-        .sb-dot.teal {
-            background: var(--teal);
-            animation: blink 2s infinite
-        }
+        .sb-dot.teal { background: var(--teal); animation: blink 2s infinite }
+        .sb-dot.amber { background: var(--amber) }
+        .sb-dot.red { background: var(--red) }
 
         .sb-sep {
             opacity: .25;
@@ -960,6 +975,7 @@
         <div class="session-chip" id="navSession" style="display:none">—</div>
         <div class="student-name" id="navName"></div>
         <div class="nav-spacer"></div>
+        <div class="conn-chip" id="connChip" role="status" aria-live="polite" style="display:none"><span class="conn-dot" id="connDot"></span><span id="connLabel">Connecting…</span></div>
     </nav>
 
     <!-- JOIN SCREEN -->
@@ -976,15 +992,15 @@
             </div>
             <div class="join-title">Join Lab Session</div>
             <div class="join-sub">Paste your teacher's full session link to open workspace instantly.</div>
-            <label class="form-label">Session Link</label>
+            <label class="form-label" for="inputSessionLink">Session Link</label>
             <input class="form-input" id="inputSessionLink"
                 placeholder="e.g. https://.../student.html?session=a4682895" />
-            <label class="form-label">Your Name</label>
+            <label class="form-label" for="inputStudentName">Your Name</label>
             <input class="form-input" id="inputStudentName" placeholder="Enter your name" />
             <div class="err-msg" id="errMsg">Please enter a valid session link and name.</div>
             <div id="joinError"
                 style="display:none;color:var(--red);font-size:.83rem;margin-bottom:.5rem;font-weight:600"></div>
-            <button class="join-btn" onclick="joinSession()">Join Session →</button>
+            <button type="button" class="join-btn" id="joinBtn" onclick="joinSession()">Join Session →</button>
         </div>
     </div>
 
@@ -1016,6 +1032,7 @@
                 </div>
 
                 <div class="lp-actions">
+                    <button type="button" class="help-btn" id="confusedBtn" onclick="openConfused()">❔ I'm confused — get a hint</button>
                     <button class="submit-btn" id="submitBtn" onclick="submitTask()">Mark Task Done (Optional)</button>
                 </div>
             </div>
@@ -1024,19 +1041,24 @@
             <div class="editor-area">
                 <div class="editor-topbar">
                     <div class="editor-tabs">
-                        <button class="etab active">solution.py</button>
+                        <button type="button" class="etab active" aria-selected="true">solution.py</button>
                     </div>
                 </div>
                 <div class="code-area-wrap">
                     <div class="line-nums" id="lineNums"></div>
-                    <textarea class="code-ta" id="codeArea" spellcheck="false" onkeyup="onKey()"
+                    <label class="sr-only" for="codeArea">Solution editor</label>
+                    <textarea class="code-ta" id="codeArea" aria-label="Solution editor" spellcheck="false" onkeyup="onKey()"
                         onpaste="onPaste(event)" oninput="updateLineNums()"></textarea>
+                </div>
+                <div class="status-bar">
+                    <div class="sb-item"><span class="sb-dot" id="sbDot"></span><span id="sbConn">Connecting…</span></div><span class="sb-sep">·</span><span id="sbIdle">Idle: 0s</span><span id="sbKeys">Keystrokes: 0</span><span id="sbPaste">Pastes: 0</span><span id="typingInd">Idle</span>
                 </div>
             </div>
         </div>
     </div>
 
     <!-- TEACHER MESSAGE BANNER -->
+    <div id="connBanner" role="status" aria-live="polite" style="display:none;position:fixed;top:58px;left:0;right:0;background:var(--red);color:#fff;padding:9px 1rem;text-align:center;font-size:.82rem;font-weight:600;z-index:299">✕ Connection lost — your work is safe, reconnecting…</div>
     <div id="teacherMsg"
         style="display:none;position:fixed;top:70px;left:50%;transform:translateX(-50%);background:var(--navy);color:#fff;padding:10px 20px;border-radius:9px;font-size:.88rem;font-weight:500;z-index:300;box-shadow:0 4px 20px rgba(0,0,0,.25)">
     </div>
@@ -1053,8 +1075,8 @@
             style="background:none;border:none;cursor:pointer;color:var(--red);font-size:1rem;line-height:1;padding:0 0 0 4px">×</button>
     </div>
     <!-- HINT TOAST -->
-    <div class="hint-toast" id="hintToast">
-        <button class="ht-close" onclick="closeHint()">×</button>
+    <div class="hint-toast" id="hintToast" role="status" aria-live="polite">
+        <button type="button" class="ht-close" aria-label="Close hint" onclick="closeHint()">×</button>
         <div class="ht-head">
             <span class="ht-icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#1a7a6e"
                     stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -1073,15 +1095,15 @@
 
     <!-- CONFUSED MODAL -->
     <div class="modal-overlay" id="confusedModal">
-        <div class="modal">
-            <div class="modal-title">What's confusing you?</div>
+        <div class="modal" role="dialog" aria-modal="true" aria-labelledby="confusedTitle">
+            <div class="modal-title" id="confusedTitle">What's confusing you?</div>
             <div class="modal-sub">Describe what you're stuck on. The AI will give you a personalised hint — not the
                 full answer, just the right nudge to get you moving again.</div>
-            <textarea class="modal-ta" id="confusedText" rows="4"
+            <label class="sr-only" for="confusedText">Describe what is confusing</label><textarea class="modal-ta" id="confusedText" rows="4"
                 placeholder="e.g. I don't understand why my recursion never stops running…"></textarea>
             <div class="modal-btns">
-                <button class="modal-cancel" onclick="closeConfused()">Cancel</button>
-                <button class="modal-submit" onclick="submitConfused()">Get Hint →</button>
+                <button type="button" class="modal-cancel" aria-label="Close hint request" onclick="closeConfused()">Cancel</button>
+                <button type="button" class="modal-submit" id="confusedSubmit" onclick="submitConfused()">Get Hint →</button>
             </div>
         </div>
     </div>
@@ -1109,6 +1131,8 @@
         const API = '';
         let socket = null, sessionId = null, studentName = null;
         let joinInFlight = false;
+        let hintInFlight = false;
+        let hintTimeout = null;
 
         // Telemetry state
         let keystrokeCount = 0, pasteCount = 0, idleSeconds = 0, hintLevel = 0;
@@ -1176,8 +1200,9 @@
                 const data = await res.json();
                 if (!res.ok) throw new Error(data.detail || 'Could not load session task');
                 tasks = [buildTaskFromDescription(data.task_description || '')];
-            } catch (_) {
+            } catch (e) {
                 tasks = [buildTaskFromDescription('Task: Review the uploaded material and attempt the core exercise.')];
+                showTeacherMsg('Could not load task: ' + e.message);
             }
             currentTask = 1;
             completedTasks = new Set();
@@ -1271,6 +1296,9 @@
                 return;
             }
             joinInFlight = true;
+            const joinBtn = document.getElementById('joinBtn');
+            joinBtn.disabled = true;
+            joinBtn.innerHTML = '<span class="spinner"></span> Joining…';
             const errEl = document.getElementById('errMsg');
             if (errEl) errEl.style.display = 'none';
 
@@ -1283,8 +1311,8 @@
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ student_name: name }),
                 });
+                if (!res.ok) throw new Error(await parseApiError(res));
                 const data = await res.json();
-                if (!res.ok) throw new Error(data.detail || 'Session not found');
 
                 showWorkspace(name, sid);
                 initSocket(sid, name);
@@ -1296,6 +1324,9 @@
                 }
             } finally {
                 joinInFlight = false;
+                const joinBtn = document.getElementById('joinBtn');
+                joinBtn.disabled = false;
+                joinBtn.textContent = 'Join Session →';
             }
         }
 
@@ -1303,6 +1334,7 @@
             document.getElementById('joinScreen').style.display = 'none';
             document.getElementById('workspace').style.display = 'block';
             document.getElementById('navSession').style.display = 'block';
+            document.getElementById('connChip').style.display = 'flex';
             document.getElementById('navSession').textContent = sid;
             document.getElementById('navName').textContent = name;
             document.getElementById('lpSession').textContent = 'SESSION ' + sid;
@@ -1317,17 +1349,25 @@
             socket = io({ transports: ['websocket', 'polling'] });
 
             socket.on('connect', () => {
-                setConn('teal', 'Connected');
+                setConn('teal', '● Connected');
+                document.getElementById('connBanner').style.display = 'none';
                 socket.emit('join_room', { session_id: sid, role: 'student', student_name: name });
             });
-            socket.on('disconnect', () => setConn('red', 'Disconnected'));
-            socket.on('connect_error', () => setConn('amber', 'Reconnecting…'));
+            socket.on('disconnect', () => {
+                setConn('red', '✕ Disconnected — reconnecting…');
+                document.getElementById('connBanner').style.display = 'block';
+                clearHintBusy();
+            });
+            socket.io.on('reconnect_attempt', n => setConn('amber', `⟳ Reconnecting… (attempt ${n})`));
+            socket.io.on('reconnect', () => { setConn('teal', '● Connected'); document.getElementById('connBanner').style.display = 'none'; });
+            socket.on('connect_error', () => setConn('amber', '⟳ Reconnecting…'));
 
             // Receive hints from the server
             socket.on('hint', (data) => {
                 if (data.student_name === studentName || !data.student_name) {
                     showHint(data.hint, data.level || 0);
                     hintLevel = data.level || 0;
+                    clearHintBusy();
                 }
             });
 
@@ -1347,7 +1387,8 @@
 
             // Errors
             socket.on('error', (data) => {
-                console.error('Server error:', data.message);
+                clearHintBusy();
+                showTeacherMsg((data && data.message) || 'Could not process that request.');
             });
         }
 
@@ -1360,6 +1401,43 @@
             if (sb) sb.className = 'sb-dot ' + cls;
             const sbConn = document.getElementById('sbConn');
             if (sbConn) sbConn.textContent = text;
+        }
+
+        async function parseApiError(res) {
+            try {
+                const data = await res.json();
+                const d = data && data.detail;
+                if (Array.isArray(d)) return d.map(i => i.msg || String(i)).join('; ');
+                if (typeof d === 'string' && d) return d;
+                return `HTTP ${res.status}`;
+            } catch (_) {
+                return `HTTP ${res.status}`;
+            }
+        }
+
+        function setHintButtonsBusy(busy) {
+            hintInFlight = busy;
+            const ids = ['confusedBtn', 'htMore', 'confusedSubmit'];
+            ids.forEach(id => {
+                const b = document.getElementById(id);
+                if (!b) return;
+                b.disabled = busy;
+                b.setAttribute('aria-disabled', String(busy));
+                b.setAttribute('aria-busy', String(busy));
+                if (busy) {
+                    b.title = 'Waiting for your hint… (one request at a time)';
+                    b.dataset.tip = b.title;
+                } else {
+                    delete b.dataset.tip;
+                    b.title = '';
+                }
+            });
+            const submit = document.getElementById('confusedSubmit');
+            if (submit) submit.innerHTML = busy ? '<span class="spinner"></span> Requesting hint…' : 'Get Hint →';
+        }
+        function clearHintBusy() {
+            clearTimeout(hintTimeout);
+            setHintButtonsBusy(false);
         }
 
         // ── IDLE TIMER & TELEMETRY ────────────────────────────────────
@@ -1454,7 +1532,7 @@
 
         function renderTaskList() {
             document.getElementById('taskList').innerHTML = tasks.map(t => `
-        <div class="task-item${t.id === currentTask ? ' active' : ''}${completedTasks.has(t.id) ? ' done' : ''}" onclick="selectTask(${t.id})">
+        <div class="task-item${t.id === currentTask ? ' active' : ''}${completedTasks.has(t.id) ? ' done' : ''}" role="button" tabindex="0" onclick="selectTask(${t.id})">
           <div class="ti-head">
             <div class="ti-num">TASK ${String(t.id).padStart(2, '0')}</div>
             <div class="ti-check${completedTasks.has(t.id) ? ' done' : ''}">
@@ -1513,13 +1591,19 @@
         function closeConfused() { document.getElementById('confusedModal').classList.remove('show'); }
 
         function submitConfused() {
+            if (hintInFlight) return;
             const text = (document.getElementById('confusedText')?.value || '').trim();
             closeConfused();
             if (!socket || !sessionId) return;
             sendTelemetry('help', {
                 message: text || 'Student is confused',
-                current_answer: document.getElementById('codeArea')?.value || ''
+                current_answer: document.getElementById('codeArea')?.value || '',
             });
+            setHintButtonsBusy(true);
+            hintTimeout = setTimeout(() => {
+                clearHintBusy();
+                showTeacherMsg('Hint took too long — try again.');
+            }, 20000);
         }
 
         // ── QUIZ ──────────────────────────────────────────────────────
@@ -1529,17 +1613,17 @@
             let html = '<div class="modal-title">🧠 Knowledge Check</div>';
             html += '<div class="modal-sub">Your teacher sent a quiz. Answer all questions below.</div>';
             questions.forEach((q, i) => {
-                html += `<div style="margin-bottom:14px;padding:12px;background:var(--cream);border:1px solid var(--border-lt);border-radius:10px">`;
-                html += `<div style="font-size:.85rem;font-weight:700;color:var(--navy);margin-bottom:8px">${i + 1}. ${q.question}</div>`;
+                html += `<fieldset style="margin-bottom:14px;padding:12px;background:var(--cream);border:1px solid var(--border-lt);border-radius:10px"><legend style="font-size:.85rem;font-weight:700;color:var(--navy);margin-bottom:8px">${i + 1}. ${q.question}</legend>`;
+
                 const entries = Object.entries(q.options || {});
                 entries.forEach(([optKey, optVal]) => {
                     html += `<label style="display:block;padding:6px 10px;margin:4px 0;border-radius:6px;cursor:pointer;font-size:.82rem;color:var(--text-mid);border:1px solid var(--border-lt);transition:all .15s">
             <input type="radio" name="q${i}" value="${optKey}" style="margin-right:8px"> <strong>${optKey}.</strong> ${optVal}
           </label>`;
                 });
-                html += '</div>';
+                html += '</fieldset>';
             });
-            html += `<button class="submit-btn" style="margin-top:12px" onclick="submitQuiz()">📝 Submit Answers</button>`;
+            html += `<button type="button" class="submit-btn" id="quizSubmitBtn" style="margin-top:12px" onclick="submitQuiz()">📝 Submit Answers</button>`;
             html += `<div id="quizFeedback" style="margin-top:12px;display:none"></div>`;
 
             // Insert into a modal
@@ -1560,14 +1644,19 @@
                 if (checked) answers[String(i)] = checked.value;
             });
 
+            const quizBtn = document.getElementById('quizSubmitBtn');
+            if (quizBtn) {
+                quizBtn.disabled = true;
+                quizBtn.innerHTML = '<span class="spinner"></span> Submitting…';
+            }
             try {
                 const res = await fetch(`${API}/api/sessions/${sessionId}/submit-quiz`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ student_name: studentName, answers }),
                 });
+                if (!res.ok) throw new Error(await parseApiError(res));
                 const data = await res.json();
-                if (!res.ok) throw new Error(data.detail || 'Submit failed');
 
                 const fb = document.getElementById('quizFeedback');
                 if (fb) {
@@ -1584,11 +1673,29 @@
                     window._quizQuestions = null;
                 }, 4000);
             } catch (e) {
-                alert('Quiz submission error: ' + e.message);
+                const fb = document.getElementById('quizFeedback');
+                if (fb) {
+                    fb.style.display = 'block';
+                    fb.setAttribute('role', 'alert');
+                    fb.style.color = 'var(--red)';
+                    fb.textContent = 'Quiz submission error: ' + e.message;
+                }
+                if (quizBtn) {
+                    quizBtn.disabled = false;
+                    quizBtn.textContent = '📝 Submit Answers';
+                }
             }
         }
 
         // ── TEACHER MESSAGE ───────────────────────────────────────────
+        document.addEventListener('keydown', e => {
+            if (e.key === 'Escape') closeConfused();
+            if ((e.key === 'Enter' || e.key === ' ') && e.target.classList.contains('task-item')) {
+                e.preventDefault();
+                e.target.click();
+            }
+        });
+
         function showTeacherMsg(text) {
             const el = document.getElementById('teacherMsg');
             if (!el) return;
