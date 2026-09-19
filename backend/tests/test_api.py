@@ -206,6 +206,18 @@ async def test_report_reflects_student_hints_and_status(client):
     assert session.students["Zed"].to_dict()["understanding_score"] == 46.0
 
 
+async def test_needs_follow_up_bar_counts_flagged_students_without_three_hints(client):
+    sid = await create(client)
+    await client.post(f"/api/sessions/{sid}/join", json={"student_name": "Flagged"})
+    session = session_manager.get_session(sid)
+    session.students["Flagged"].hints_given = 1
+    session.students["Flagged"].status = "red"
+    analytics = (await client.get(f"/api/sessions/{sid}/report", headers=th(sid))).json()["analytics"]
+    assert analytics["critical_students"] == 1
+    bar = next(b for b in analytics["bars"] if b["value"] == 1.0 and "Follow-up" in b["label"])
+    assert bar["label"] == "Needs Follow-up (>=3 hints or flagged)"
+
+
 async def test_live_and_report_understanding_scores_agree(client):
     sid = await create(client)
     await client.post(f"/api/sessions/{sid}/join", json={"student_name": "Zed"})
