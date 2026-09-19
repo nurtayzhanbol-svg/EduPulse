@@ -485,6 +485,65 @@
             margin-top: 4px
         }
 
+        .step-item {
+            display: flex;
+            align-items: flex-start;
+            gap: 10px;
+            padding: 10px 12px;
+            border-radius: 10px;
+            border: 1.5px solid var(--border-lt);
+            margin-bottom: 8px;
+            background: transparent
+        }
+
+        .step-item.done {
+            border-color: var(--teal);
+            background: rgba(26, 122, 110, .05)
+        }
+
+        .step-item .ti-check {
+            margin-top: 2px
+        }
+
+        .step-body {
+            flex: 1;
+            min-width: 0
+        }
+
+        .step-text {
+            font-size: .82rem;
+            color: var(--navy);
+            line-height: 1.5
+        }
+
+        .step-item.done .step-text {
+            color: var(--text-mid);
+            text-decoration: line-through
+        }
+
+        .step-btn {
+            margin-top: 6px;
+            font-size: .72rem;
+            font-weight: 600;
+            padding: 4px 10px;
+            border-radius: 7px;
+            border: 1.5px solid var(--teal);
+            background: transparent;
+            color: var(--teal);
+            cursor: pointer;
+            font-family: inherit
+        }
+
+        .step-btn:hover {
+            background: var(--teal);
+            color: #fff
+        }
+
+        .step-btn:disabled {
+            opacity: .55;
+            cursor: default
+        }
+
         /* ACTIONS */
         .lp-actions {
             padding: 1rem 1.4rem;
@@ -1034,8 +1093,8 @@
 
                 <div class="completion-section">
                     <div class="completion-lbl">
-                        <span>Completion</span>
-                        <span id="completionText">0%</span>
+                        <span>Steps done</span>
+                        <span id="completionText">0 / 0</span>
                     </div>
                     <div class="completion-track">
                         <div class="completion-fill" id="completionFill"></div>
@@ -1043,13 +1102,14 @@
                 </div>
 
                 <div class="task-scroll">
-                    <div class="tasks-lbl">Tasks</div>
+                    <div class="tasks-lbl">Task</div>
                     <div id="taskList"></div>
+                    <div class="tasks-lbl" style="margin-top:14px">Steps</div>
+                    <div id="stepList"></div>
                 </div>
 
                 <div class="lp-actions">
                     <button type="button" class="help-btn" id="confusedBtn" onclick="openConfused()">❔ I'm confused — get a hint</button>
-                    <button class="submit-btn" id="submitBtn" onclick="submitTask()">Mark Task Done (Optional)</button>
                 </div>
             </div>
 
@@ -1160,8 +1220,11 @@
         // Telemetry state
         let keystrokeCount = 0, pasteCount = 0, idleSeconds = 0, hintLevel = 0;
         let lastKeystroke = Date.now();
-        let completedTasks = new Set();
         let currentTask = 1;
+        // Task steps come from the server; progress = completed steps / total steps.
+        let taskSteps = [];
+        let completedSteps = new Set();
+        let stepInFlight = false;
 
         // ── TASKS ──────────────────────────────────────────────────────
         let tasks = [
@@ -1208,28 +1271,88 @@
         }
 
         function updateCompletion() {
-            const total = Math.max(1, tasks.length);
-            const completed = completedTasks.size;
-            const percent = Math.round((completed / total) * 100);
+            const total = taskSteps.length;
+            const completed = [...completedSteps].filter(i => i < total).length;
+            const percent = total ? Math.round((completed / total) * 100) : 0;
             const fill = document.getElementById('completionFill');
             const text = document.getElementById('completionText');
             if (fill) fill.style.width = percent + '%';
-            if (text) text.textContent = percent + '%';
+            if (text) text.textContent = `${completed} / ${total}`;
+        }
+
+        function setTaskSteps(steps, done) {
+            taskSteps = Array.isArray(steps) ? steps.filter(s => typeof s === 'string' && s.trim()) : [];
+            completedSteps = new Set((Array.isArray(done) ? done : []).filter(i => Number.isInteger(i)));
+            updateCompletion();
+            renderStepList();
+        }
+
+        function renderStepList() {
+            const el = document.getElementById('stepList');
+            if (!el) return;
+            if (!taskSteps.length) {
+                el.innerHTML = '<div class="ti-desc">No steps for this task yet.</div>';
+                return;
+            }
+            el.innerHTML = taskSteps.map((text, i) => {
+                const done = completedSteps.has(i);
+                return `
+        <div class="step-item${done ? ' done' : ''}">
+          <div class="ti-check${done ? ' done' : ''}">
+            ${done ? '<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>' : ''}
+          </div>
+          <div class="step-body">
+            <div class="step-text"><strong>Step ${i + 1}.</strong> ${_escapeHtml(text)}</div>
+            <button type="button" class="step-btn" data-step="${i}" onclick="markStepDone(${i})" ${done ? 'disabled' : ''}>${done ? '✓ Done' : 'Mark step done'}</button>
+          </div>
+        </div>`;
+            }).join('');
+        }
+
+        async function markStepDone(i) {
+            if (stepInFlight || completedSteps.has(i) || !sessionId || !studentId) return;
+            stepInFlight = true;
+            try {
+                const res = await fetch(`${API}/api/sessions/${sessionId}/steps/done`, {
+                    method: 'POST',
+                    headers: studentAuthHeaders({ 'Content-Type': 'application/json' }),
+                    body: JSON.stringify({ student_id: studentId, step: i }),
+                });
+                if (!res.ok) throw new Error(await parseApiError(res));
+                const data = await res.json();
+                completedSteps = new Set(data.completed_steps || []);
+                updateCompletion();
+                renderStepList();
+                if (completedSteps.size >= taskSteps.length) {
+                    const ov = document.getElementById('successOverlay');
+                    document.getElementById('successTitle').textContent = 'All steps done!';
+                    document.getElementById('successSub').textContent = 'Nice work. Keep refining your answer if you want.';
+                    ov.classList.add('show');
+                    setTimeout(() => { ov.classList.remove('show'); }, 1500);
+                }
+            } catch (e) {
+                showTeacherMsg('Could not save step: ' + e.message);
+            } finally {
+                stepInFlight = false;
+            }
         }
 
         async function loadSessionTask(sid) {
+            let steps = [], done = [];
             try {
                 const res = await fetch(`${API}/api/sessions/${sid}`);
                 const data = await res.json();
                 if (!res.ok) throw new Error(data.detail || 'Could not load session task');
                 tasks = [buildTaskFromDescription(data.task_description || '')];
+                steps = data.task_steps || [];
+                const me = (data.students || {})[studentId];
+                done = (me && me.completed_steps) || [];
             } catch (e) {
                 tasks = [buildTaskFromDescription('Task: Review the uploaded material and attempt the core exercise.')];
                 showTeacherMsg('Could not load task: ' + e.message);
             }
             currentTask = 1;
-            completedTasks = new Set();
-            updateCompletion();
+            setTaskSteps(steps, done);
             loadTask(1);
             renderTaskList();
         }
@@ -1453,6 +1576,10 @@
                 const headline = document.getElementById('taskHeadline');
                 if (headline) headline.textContent = tasks[0].name;
                 renderTaskList();
+                if (Array.isArray(data.task_steps)) {
+                    const same = data.task_steps.length === taskSteps.length && data.task_steps.every((s, i) => s === taskSteps[i]);
+                    setTaskSteps(data.task_steps, same ? [...completedSteps] : []);
+                }
             });
 
             // A message typed by the teacher for this student only — not an AI hint
@@ -1639,11 +1766,7 @@
             const headline = document.getElementById('taskHeadline');
             if (headline) headline.textContent = t.name || 'AI Task from Class Material';
             const editor = document.getElementById('codeArea');
-            editor.value = completedTasks.has(id) ? '# ✓ Task submitted\n' : t.starter;
-            editor.disabled = completedTasks.has(id);
-            const btn = document.getElementById('submitBtn');
-            btn.textContent = completedTasks.has(id) ? '✓ Done' : 'Mark Task Done (Optional)';
-            btn.disabled = completedTasks.has(id);
+            editor.value = t.starter;
             hintLevel = 0;
             closeHint();
             updateLineNums();
@@ -1651,12 +1774,9 @@
 
         function renderTaskList() {
             document.getElementById('taskList').innerHTML = tasks.map(t => `
-        <div class="task-item${t.id === currentTask ? ' active' : ''}${completedTasks.has(t.id) ? ' done' : ''}" role="button" tabindex="0" onclick="selectTask(${t.id})">
+        <div class="task-item${t.id === currentTask ? ' active' : ''}" role="button" tabindex="0" onclick="selectTask(${t.id})">
           <div class="ti-head">
             <div class="ti-num">TASK ${String(t.id).padStart(2, '0')}</div>
-            <div class="ti-check${completedTasks.has(t.id) ? ' done' : ''}">
-              ${completedTasks.has(t.id) ? '<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>' : ''}
-            </div>
           </div>
           <div class="ti-name">${t.name}</div>
           <div class="ti-desc">${t.desc}</div>
@@ -1668,22 +1788,6 @@
             currentTask = id;
             loadTask(id);
             renderTaskList();
-        }
-
-        function submitTask() {
-            if (completedTasks.has(currentTask)) return;
-            completedTasks.add(currentTask);
-            updateCompletion();
-            renderTaskList();
-            sendTelemetry('task_complete', { task_id: currentTask, tasks_completed: completedTasks.size });
-            loadTask(currentTask);
-
-            // Success flash
-            const ov = document.getElementById('successOverlay');
-            document.getElementById('successTitle').textContent = 'Task Submitted!';
-            document.getElementById('successSub').textContent = 'Great. Continue refining your answer if needed.';
-            ov.classList.add('show');
-            setTimeout(() => { ov.classList.remove('show'); }, 1500);
         }
 
         // ── HINTS ─────────────────────────────────────────────────────

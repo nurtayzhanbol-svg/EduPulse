@@ -398,22 +398,60 @@ def test_help_frustration_caps_at_one(session, student):
 # ── code_update ───────────────────────────────────────────────────
 
 
-def test_code_update_sets_progress_from_line_count(session, student):
+def test_code_update_stores_code_but_never_changes_progress(session, student):
     process_telemetry(session, student_id(session, "student0"), make_event("code_update", code="a\nb\nc"))
     assert student.current_code == "a\nb\nc"
-    assert student.progress == 15.0
-
-
-def test_code_update_progress_caps_at_100(session, student):
+    assert student.progress == 0.0
     process_telemetry(session, student_id(session, "student0"), make_event("code_update", code="\n" * 40))
-    assert student.progress == 100.0
+    assert student.progress == 0.0
 
 
 def test_code_update_with_missing_code_clears_editor(session, student):
     student.current_code = "old"
     process_telemetry(session, student_id(session, "student0"), make_event("code_update"))
     assert student.current_code == ""
-    assert student.progress == 5.0
+    assert student.progress == 0.0
+
+
+# ── task steps ────────────────────────────────────────────────────
+
+
+def test_progress_is_completed_steps_over_total(student):
+    assert student.mark_step_done(0, 3) is True
+    assert student.completed_steps == [0]
+    assert student.progress == pytest.approx(100 / 3)
+    assert student.mark_step_done(0, 3) is True  # idempotent
+    assert student.completed_steps == [0]
+    assert student.mark_step_done(2, 3) is True
+    assert student.completed_steps == [0, 2]
+    assert student.progress == pytest.approx(200 / 3)
+    assert student.mark_step_done(1, 3) is True
+    assert student.progress == 100.0
+
+
+def test_mark_step_done_rejects_invalid_indexes(student):
+    for bad in (-1, 3, "0", None, True, 1.0):
+        assert student.mark_step_done(bad, 3) is False
+    assert student.completed_steps == []
+    assert student.progress == 0.0
+    assert student.mark_step_done(0, 0) is False
+
+
+def test_reset_steps_clears_progress(student):
+    student.mark_step_done(1, 2)
+    student.reset_steps()
+    assert student.completed_steps == []
+    assert student.progress == 0.0
+
+
+def test_completed_steps_are_persisted_and_restored(student):
+    student.mark_step_done(1, 2)
+    record = student.to_record()
+    assert record["completed_steps"] == [1]
+    restored = student.__class__.from_record(record)
+    assert restored.completed_steps == [1]
+    assert restored.progress == 50.0
+    assert restored.to_dict()["completed_steps"] == [1]
 
 
 # ── pause_wait ────────────────────────────────────────────────────

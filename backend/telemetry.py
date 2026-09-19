@@ -149,8 +149,6 @@ def process_telemetry(session: SessionState, student_id: str, event: TelemetryEv
             # Changed code is work, whether or not keystrokes were reported.
             student.idle_seconds = 0
             student.last_keypress_at = now
-        lines = student.current_code.count("\n") + 1
-        student.progress = min(100.0, lines * 5.0)  # rough heuristic
 
     elif event.event_type == "pause_wait":
         secs = float(event.payload.get("idle_seconds", 0) or 0)

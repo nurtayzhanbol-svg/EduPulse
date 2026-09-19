@@ -1323,8 +1323,8 @@
             <div class="metrics-row">
                 <div class="metric-card">
                     <div class="metric-label">Quiz Accuracy</div>
-                    <div class="metric-value teal" id="mUnderstanding">—</div>
-                    <div class="metric-sub" id="mUnderstandingSub">No evidence yet</div>
+                    <div class="metric-value teal" id="mQuiz">—</div>
+                    <div class="metric-sub" id="mQuizSub">No evidence yet</div>
                     <div class="metric-bar">
                         <div class="metric-bar-fill" id="mUBar" style="width:0%;background:var(--teal)"></div>
                     </div>
@@ -1340,7 +1340,7 @@
                 <div class="metric-card">
                     <div class="metric-label">AI Hints Sent</div>
                     <div class="metric-value" id="mHints">0</div>
-                    <div class="metric-sub">Progressive learning support</div>
+                    <div class="metric-sub">Support events — not a score</div>
                     <div class="metric-bar">
                         <div class="metric-bar-fill" id="mHBar" style="width:0%;background:var(--teal)"></div>
                     </div>
@@ -1793,8 +1793,11 @@
                 : `Session <strong>${sessionId}</strong> created. Share the join link with students.`);
         }
 
+        let taskStepCount = 0;
+
         function applyDashboard(data) {
             if (!data || !data.students) return;
+            if (Array.isArray(data.task_steps)) taskStepCount = data.task_steps.length;
             students = {};
             for (const [id, s] of Object.entries(data.students)) {
                 students[id] = { ...s, student_id: id };
@@ -1878,12 +1881,12 @@
         function updateMetrics() {
             const hasEvidence = classStats.avg !== null && classStats.avg !== undefined;
             const p = hasEvidence ? classStats.avg : 0;
-            const uValue = document.getElementById('mUnderstanding');
+            const uValue = document.getElementById('mQuiz');
             uValue.textContent = hasEvidence ? p + '%' : '—';
             uValue.style.color = hasEvidence && p < 50 ? 'var(--red)' : '';
 
             document.getElementById('mUBar').style.width = p + '%';
-            document.getElementById('mUnderstandingSub').textContent = !hasEvidence
+            document.getElementById('mQuizSub').textContent = !hasEvidence
                 ? (classStats.total === 0 ? 'Waiting for students…' : 'No evidence yet — run a quiz')
                 : `${classStats.graded}/${classStats.total} submitted`;
             document.getElementById('mStudents').textContent = classStats.total || 0;
@@ -1954,7 +1957,9 @@
 
             const idleSec = Math.round(s.idle_seconds || 0);
             const idle = idleSec >= 60 ? `${Math.floor(idleSec / 60)}m ${idleSec % 60}s` : `${idleSec}s`;
-            const prog = Math.round(s.progress || 0);
+            const stepsDone = Array.isArray(s.completed_steps) ? s.completed_steps.length : 0;
+            const prog = taskStepCount ? Math.round((stepsDone / taskStepCount) * 100) : Math.round(s.progress || 0);
+            const progLabel = taskStepCount ? `${stepsDone} / ${taskStepCount} steps` : `${prog}%`;
             const pasteCount = s.paste_events_count || 0;
 
             return `<div class="student-card ${cardCls}" role="button" tabindex="0" aria-label="Open details for ${s.name.replace(/"/g, '&quot;')}" onclick="openStudentModal('${s.student_id}')" style="cursor: pointer; position: relative;">
@@ -1966,9 +1971,12 @@
               <div class="s-task">${s.current_code_lines || 0} lines · ${s.total_keystrokes || 0} keystrokes</div>
             </div>
           </div>
-          <div class="status-badge ${badgeCls}">${statusGlyph}${statusLabel}</div>
+          <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px">
+            <div class="status-badge ${badgeCls}">${statusGlyph}${statusLabel}</div>
+            <div style="font-size:.7rem;font-weight:600;color:${quiz === null ? 'var(--text-dim)' : 'var(--teal)'}">Quiz: ${quiz === null ? 'no evidence yet' : quiz + '%'}</div>
+          </div>
         </div>
-        <div class="prog-row"><span>Progress</span><span style="color:${progColor};font-weight:600">${prog}%</span></div>
+        <div class="prog-row"><span>Steps done</span><span style="color:${progColor};font-weight:600">${progLabel}</span></div>
         <div class="prog-track"><div class="prog-fill" style="width:${prog}%;background:${progColor}"></div></div>
         <div class="s-metrics">
           <div class="s-met"><div class="s-met-val" style="color:${quiz === null ? 'var(--text-dim)' : progColor}">${quiz === null ? '—' : quiz + '%'}</div><div class="s-met-lbl">Quiz</div></div>
