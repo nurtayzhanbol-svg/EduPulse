@@ -34,36 +34,36 @@ def dashboards(emitted):
     return [(d, kw) for e, d, kw in emitted if e == "dashboard_update"]
 
 
-async def join_student(session_id, name, token):
-    await main.join_room(f"sid-{name}", {
+async def join_student(session_id, student_id, token):
+    await main.join_room(f"sid-{student_id}", {
         "session_id": session_id, "role": "student",
-        "student_name": name, "student_token": token,
+        "student_id": student_id, "student_token": token,
     })
 
 
 async def test_code_update_reaches_the_teacher_dashboard(sio_spy):
     emitted = sio_spy
     session, _ = session_manager.create_session("Sum a list", "easy")
-    _, token = session_manager.join_session(session.session_id, "Alice")
-    await join_student(session.session_id, "Alice", token)
+    alice, token = session_manager.join_session(session.session_id, "Alice")
+    await join_student(session.session_id, alice.student_id, token)
 
-    await main.telemetry("sid-Alice", {
+    await main.telemetry(f"sid-{alice.student_id}", {
         "session_id": session.session_id,
-        "student_name": "Alice",
+        "student_id": alice.student_id,
         "student_token": token,
         "event": {"event_type": "code_update", "payload": {"code": CODE}},
     })
 
     payload, kwargs = dashboards(emitted)[-1]
-    assert payload["students"]["Alice"]["current_code"] == CODE
+    assert payload["students"][alice.student_id]["current_code"] == CODE
     assert kwargs == {"room": main.teacher_room(session.session_id)}
 
 
 async def test_dashboard_with_code_is_not_broadcast_to_the_student_room(sio_spy):
     emitted = sio_spy
     session, _ = session_manager.create_session("Sum a list", "easy")
-    _, token = session_manager.join_session(session.session_id, "Alice")
-    await join_student(session.session_id, "Alice", token)
+    alice, token = session_manager.join_session(session.session_id, "Alice")
+    await join_student(session.session_id, alice.student_id, token)
 
     rooms = {kw.get("room") for _, kw in dashboards(emitted)}
     assert rooms == {main.teacher_room(session.session_id)}
@@ -72,12 +72,12 @@ async def test_dashboard_with_code_is_not_broadcast_to_the_student_room(sio_spy)
 
 async def test_unauthenticated_session_endpoint_omits_code():
     session, _ = session_manager.create_session("Sum a list", "easy")
-    session_manager.join_session(session.session_id, "Alice")
-    session.students["Alice"].current_code = CODE
+    alice, _ = session_manager.join_session(session.session_id, "Alice")
+    alice.current_code = CODE
 
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as c:
         r = await c.get(f"/api/sessions/{session.session_id}")
-    alice = r.json()["students"]["Alice"]
+    alice = r.json()["students"][alice.student_id]
     assert "current_code" not in alice
     assert alice["current_code_lines"] == 3

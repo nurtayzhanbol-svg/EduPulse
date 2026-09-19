@@ -49,7 +49,7 @@ ALLOWED_ORIGINS = [
 sio = socketio.AsyncServer(async_mode="asgi", cors_allowed_origins=ALLOWED_ORIGINS)
 socket_app = socketio.ASGIApp(sio, other_asgi_app=app)
 
-# Socket sid -> (session_id, student_name) for sockets that authenticated via join_room.
+# Socket sid -> (session_id, student_id) for sockets that authenticated via join_room.
 _student_sockets: dict[str, tuple[str, str]] = {}
 
 
@@ -111,156 +111,53 @@ async def _extract_uploaded_pdf(file: UploadFile) -> dict:
 def _build_session_analytics(session) -> dict:
     students = list(session.students.values())
     total_students = len(students)
-    if total_students == 0:
-        return {
-            "total_students": 0,
-            "total_hints": 0,
-            "hints_per_student_per_task": 0.0,
-            "struggling_students": 0,
-            "high_struggle_students": 0,
-            "confused_students": 0,
-            "on_track_students": 0,
-            "critical_students": 0,
-            "struggling_ratio": 0.0,
-            "total_help_requests": 0,
-            "total_support_signals": 0,
-            "avg_support_signals": 0.0,
-            "quiz_submissions": 0,
-            "quiz_accuracy": None,
-            "avg_frustration": 0.0,
-            "avg_idle_seconds": 0.0,
-            "avg_time_in_session_seconds": 0.0,
-            "avg_keystrokes": 0.0,
-            "avg_code_lines": 0.0,
-            "total_large_pastes": 0,
-            "bars": [],
-        }
-
     total_hints = sum(s.hints_given for s in students)
-    struggling_students = sum(1 for s in students if s.hints_given >= 1)
-    high_struggle_students = sum(1 for s in students if s.hints_given >= 2)
-    on_track_students = sum(1 for s in students if s.hints_given == 0 and s.status == "green")
-    # "Needs follow-up": either the student leaned on hints, or telemetry flagged them red.
-    critical_students = sum(1 for s in students if s.hints_given >= 3 or s.status == "red")
-    confused_students = sum(
-        1 for s in students
-        if s.hints_given >= 1 or s.frustration_score >= 0.5
-    )
-    total_help_requests = sum(len(s.help_requests) for s in students)
-    total_support_signals = sum(s.support_signals for s in students)
-    # Quiz correctness is the only direct evidence of understanding; absent a
-    # submission there is no evidence, which is different from a low score.
-    quiz_scores = [float(s.quiz_score) for s in students if s.quiz_score is not None]
-    quiz_accuracy = round(sum(quiz_scores) / len(quiz_scores), 1) if quiz_scores else None
-    avg_frustration = sum(s.frustration_score for s in students) / total_students
-    avg_idle = sum(s.idle_seconds for s in students) / total_students
-    avg_time_in_session = sum(max(0.0, s.last_activity - s.joined_at) for s in students) / total_students
-    avg_keystrokes = sum(s.total_keystrokes for s in students) / total_students
-    avg_code_lines = sum((s.current_code.count("\n") + 1) if s.current_code else 0 for s in students) / total_students
+    help_request_count = sum(len(s.help_requests) for s in students)
+    quiz_submitted = [s for s in students if s.quiz_score is not None]
+    quiz_submitted_count = len(quiz_submitted)
+    quiz_pcts = [
+        100 * s.quiz_correct / s.quiz_total
+        for s in quiz_submitted
+        if s.quiz_total
+    ]
+    quiz_avg_correct_pct = round(sum(quiz_pcts) / len(quiz_pcts), 1) if quiz_pcts else None
     total_large_pastes = sum(
         1 for s in students for p in s.paste_events if p.get("length", 0) >= 200
     )
-    long_pause_students = sum(
-        1 for s in students if s.idle_seconds >= getattr(session, "pause_threshold_seconds", 60)
-    )
-
-    hints_per_student_per_task = round(total_hints / total_students, 2)
-    struggling_ratio = round((struggling_students / total_students) * 100, 1)
-    avg_support_signals = round(total_support_signals / total_students, 2)
-
+    students_with_help = sum(1 for s in students if s.help_requests)
     bars = [
-        {"label": "Quiz Accuracy", "value": quiz_accuracy if quiz_accuracy is not None else 0.0, "max": 100.0, "unit": "%" if quiz_accuracy is not None else " (no evidence yet)"},
-        {"label": "Quiz Submissions", "value": float(len(quiz_scores)), "max": float(total_students), "unit": f"/{total_students}"},
-        {"label": "Explicit Help Requests", "value": float(total_help_requests), "max": max(1.0, float(total_help_requests)), "unit": ""},
-        {"label": "Support Signals per Student", "value": avg_support_signals, "max": max(3.0, avg_support_signals + 1.0), "unit": ""},
-        {"label": "On-Track Students", "value": float(on_track_students), "max": float(total_students), "unit": f"/{total_students}"},
-        {"label": "Struggling (>=1 hint)", "value": float(struggling_students), "max": float(total_students), "unit": f"/{total_students}"},
-        {"label": "High Struggle (>=2 hints)", "value": float(high_struggle_students), "max": float(total_students), "unit": f"/{total_students}"},
-        {"label": "Needs Follow-up (>=3 hints or flagged)", "value": float(critical_students), "max": float(total_students), "unit": f"/{total_students}"},
-        {"label": "Confused Students", "value": float(confused_students), "max": float(total_students), "unit": f"/{total_students}"},
-        {"label": "Avg Frustration", "value": round(avg_frustration, 2), "max": 1.0, "unit": ""},
-        {"label": "Hints per Student/Task", "value": float(hints_per_student_per_task), "max": max(3.0, hints_per_student_per_task + 1.0), "unit": ""},
-        {"label": "Avg Idle", "value": round(avg_idle, 1), "max": max(120.0, avg_idle + 30.0), "unit": "s"},
-        {"label": "Long Pause Students", "value": float(long_pause_students), "max": float(total_students), "unit": f"/{total_students}"},
-        {"label": "Avg Time in Session", "value": round(avg_time_in_session / 60.0, 1), "max": max(10.0, round(avg_time_in_session / 60.0, 1) + 2.0), "unit": "min"},
-        {"label": "Avg Keystrokes", "value": round(avg_keystrokes, 1), "max": max(10.0, avg_keystrokes + 10.0), "unit": ""},
-        {"label": "Avg Code Lines", "value": round(avg_code_lines, 1), "max": max(5.0, avg_code_lines + 5.0), "unit": ""},
+        {"label": "Quiz submitted", "value": float(quiz_submitted_count), "max": float(total_students), "unit": f"/{total_students}"},
+        {"label": "Quiz avg correct", "value": quiz_avg_correct_pct if quiz_avg_correct_pct is not None else 0.0, "max": 100.0, "unit": "%" if quiz_avg_correct_pct is not None else " (no evidence yet)"},
+        {"label": "Help requests", "value": float(help_request_count), "max": max(1.0, float(help_request_count)), "unit": ""},
+        {"label": "Hints given", "value": float(total_hints), "max": max(1.0, float(total_hints)), "unit": ""},
     ]
-
-    insights: list[str] = []
-    if struggling_students > 0:
-        insights.append(
-            f"{struggling_students}/{total_students} students needed hints; prioritize review of core task logic next class."
-        )
-    else:
-        insights.append("No students required hints in this session.")
-    if high_struggle_students > 0:
-        insights.append(
-            f"{high_struggle_students} students used 2+ hints (high struggle). Plan a guided practice segment next session."
-        )
-    if avg_idle >= 90:
-        insights.append("High idle time detected. Add shorter milestones/checkpoints during the task.")
-    if long_pause_students > 0:
-        insights.append(
-            f"{long_pause_students} students reached the pause-hint threshold ({getattr(session, 'pause_threshold_seconds', 60)}s)."
-        )
-    if quiz_accuracy is None:
-        insights.append(
-            "No quiz evidence yet — run a quiz to measure what the class actually understood."
-        )
-    elif quiz_accuracy >= 70:
-        insights.append(
-            f"Quiz accuracy {quiz_accuracy}% across {len(quiz_scores)}/{total_students} submissions; "
-            "class readiness looks good for a harder follow-up task."
-        )
-    elif quiz_accuracy <= 40:
-        insights.append(
-            f"Quiz accuracy {quiz_accuracy}% across {len(quiz_scores)}/{total_students} submissions. "
-            "Start next class with a focused recap and worked example."
-        )
-
+    insights = [
+        "No quiz evidence yet — run a quiz to see what the class actually got right."
+        if quiz_avg_correct_pct is None
+        else (
+            f"Quiz: {quiz_avg_correct_pct}% correct on average across "
+            f"{quiz_submitted_count}/{total_students} submissions."
+            + (" Start next class with a focused recap and worked example."
+               if quiz_avg_correct_pct <= 40 else "")
+        ),
+        f"{help_request_count} explicit help request(s) from {students_with_help} student(s)."
+        if help_request_count > 0
+        else "No explicit help requests in this session.",
+    ]
     return {
         "total_students": total_students,
         "total_hints": total_hints,
-        "hints_per_student_per_task": hints_per_student_per_task,
-        "struggling_students": struggling_students,
-        "high_struggle_students": high_struggle_students,
-        "confused_students": confused_students,
-        "on_track_students": on_track_students,
-        "critical_students": critical_students,
-        "struggling_ratio": struggling_ratio,
-        "total_help_requests": total_help_requests,
-        "total_support_signals": total_support_signals,
-        "avg_support_signals": avg_support_signals,
-        "quiz_submissions": len(quiz_scores),
-        "quiz_accuracy": quiz_accuracy,
-        "avg_frustration": round(avg_frustration, 2),
-        "avg_idle_seconds": round(avg_idle, 1),
-        "avg_time_in_session_seconds": round(avg_time_in_session, 1),
-        "avg_keystrokes": round(avg_keystrokes, 1),
-        "avg_code_lines": round(avg_code_lines, 1),
+        "help_request_count": help_request_count,
+        "quiz_submitted_count": quiz_submitted_count,
+        "quiz_avg_correct_pct": quiz_avg_correct_pct,
         "total_large_pastes": total_large_pastes,
-        "long_pause_students": long_pause_students,
         "bars": bars,
         "insights": insights,
     }
 
-
 def _build_report_payload(session) -> dict:
     analytics = getattr(session, "analytics", None) or _build_session_analytics(session)
     students = list(session.students.values())
-    total_students = len(students)
-
-    # Buckets are quiz correctness, not hint usage: a student who asked for help and
-    # then answered correctly understood the material.
-    graded = [s for s in students if s.quiz_score is not None]
-    strong = sum(1 for s in graded if s.quiz_score >= 80)
-    mixed = sum(1 for s in graded if 50 <= s.quiz_score < 80)
-    weak = sum(1 for s in graded if s.quiz_score < 50)
-    no_evidence = max(0, total_students - len(graded))
-
-    def pct(v: int) -> int:
-        return int(round((v / total_students) * 100)) if total_students else 0
 
     start_ts = float(getattr(session, "created_at", datetime.now().timestamp()))
     end_ts = float(getattr(session, "ended_at", datetime.now().timestamp()) or datetime.now().timestamp())
@@ -309,15 +206,22 @@ def _build_report_payload(session) -> dict:
 
     students_table = [
         {
+            "student_id": s.student_id,
             "name": s.name,
+            "help_requests": len(s.help_requests),
             "hints": int(s.hints_given),
+            "quiz": (
+                {
+                    "correct": s.quiz_correct,
+                    "total": s.quiz_total,
+                    "score": s.quiz_score,
+                }
+                if s.quiz_score is not None else None
+            ),
             "status": s.status,
             "idle_seconds": round(float(s.idle_seconds), 1),
-            "help_requests": len(s.help_requests),
-            "support_signals": s.support_signals,
-            "quiz_score": s.quiz_score,
         }
-        for s in sorted(students, key=lambda x: (x.support_signals, x.name), reverse=True)
+        for s in sorted(students, key=lambda s: (s.quiz_score is None, -(s.quiz_score or 0), s.name))
     ]
 
     return {
@@ -329,18 +233,7 @@ def _build_report_payload(session) -> dict:
         "duration_minutes": int(round(duration_seconds / 60.0)),
         "summary": session.summary or "Session completed.",
         "analytics": analytics,
-        "counts": {
-            "strong": strong,
-            "mixed": mixed,
-            "weak": weak,
-            "no_evidence": no_evidence,
-        },
-        "percentages": {
-            "strong": pct(strong),
-            "mixed": pct(mixed),
-            "weak": pct(weak),
-            "no_evidence": pct(no_evidence),
-        },
+        "evidence_note": "No evidence yet" if analytics.get("quiz_avg_correct_pct") is None else None,
         "timeline": {
             "labels": timeline_labels,
             "data": timeline_data,
@@ -434,8 +327,6 @@ async def join_session(session_id: str, req: JoinSessionRequest, request: Reques
     student, token = session_manager.join_session(session_id, name, bearer_token(request))
     if student is None:
         raise HTTPException(404, "Session not found or inactive")
-    if token is None:
-        raise HTTPException(409, "That name is already taken in this session. Pick another name.")
     return {
         "status": "joined",
         "student_name": student.name,
@@ -584,13 +475,16 @@ async def submit_quiz(session_id: str, submission: dict, request: Request):
     if session is None:
         raise HTTPException(404, "Session not found")
 
-    student_name = str(submission.get("student_name", ""))
-    require_student(request, session, student_name)
+    student_id = str(submission.get("student_id", ""))
+    require_student(request, session, student_id)
     answers = submission.get("answers", {})
     quiz = getattr(session, "quiz", None)
 
     if not quiz:
         raise HTTPException(400, "No quiz available")
+    student = session.students[student_id]
+    if student_id in session.quiz_results:
+        raise HTTPException(409, "Quiz already submitted")
 
     # Grade the quiz
     correct = 0
@@ -612,24 +506,23 @@ async def submit_quiz(session_id: str, submission: dict, request: Request):
     score = round((correct / total) * 100) if total > 0 else 0
 
     # Store results
-    if not hasattr(session, "quiz_results"):
-        session.quiz_results = {}
-    session.quiz_results[student_name] = {
+    session.quiz_results[student_id] = {
+        "student_name": student.name,
         "score": score,
         "correct": correct,
         "total": total,
         "results": results,
+        "submitted_at": datetime.now().timestamp(),
     }
-    student = session.students.get(student_name)
-    if student is not None:
-        student.quiz_score = float(score)
-        student.quiz_correct = correct
-        student.quiz_total = total
+    student.quiz_score = float(score)
+    student.quiz_correct = correct
+    student.quiz_total = total
     session_manager.persist_session(session)
 
     # Update teacher dashboard
     await sio.emit("quiz_result", {
-        "student_name": student_name,
+        "student_id": student.student_id,
+        "student_name": student.name,
         "score": score,
         "correct": correct,
         "total": total,
@@ -677,7 +570,7 @@ async def join_room(sid, data):
     """Student or teacher joins a session room."""
     session_id = data.get("session_id")
     role = data.get("role", "student")
-    student_name = data.get("student_name", "")
+    student_id = data.get("student_id", "")
 
     session = session_manager.get_session(session_id)
     if session is None:
@@ -694,12 +587,12 @@ async def join_room(sid, data):
         await sio.emit("dashboard_update", session.to_dict(include_code=True), to=sid)
         return
 
-    student = session_manager.authenticate_student(session_id, student_name, data.get("student_token"))
+    student = session_manager.authenticate_student(session_id, student_id, data.get("student_token"))
     if student is None:
         await sio.emit("error", {"message": "Invalid student token"}, to=sid)
         return
 
-    _student_sockets[sid] = (session_id, student.name)
+    _student_sockets[sid] = (session_id, student.student_id)
     student.sid = sid
     await sio.enter_room(sid, session_id)
     print(f"[WS] Student '{student.name}' joined session {session_id}")
@@ -723,15 +616,15 @@ async def join_room(sid, data):
 async def telemetry(sid, data):
     """Receive telemetry event from student."""
     session_id = data.get("session_id")
-    student_name = data.get("student_name")
+    student_id = data.get("student_id")
     event_data = data.get("event", {})
 
     # The socket must have authenticated via join_room, and may only report as itself.
     bound = _student_sockets.get(sid)
-    if bound is None or bound != (session_id, student_name):
+    if bound is None or bound != (session_id, student_id):
         await sio.emit("error", {"message": "Unauthorized telemetry"}, to=sid)
         return
-    student = session_manager.authenticate_student(session_id, student_name, data.get("student_token"))
+    student = session_manager.authenticate_student(session_id, student_id, data.get("student_token"))
     if student is None:
         await sio.emit("error", {"message": "Invalid student token"}, to=sid)
         return
@@ -745,7 +638,7 @@ async def telemetry(sid, data):
         payload=event_data.get("payload", {}),
     )
 
-    actions = process_telemetry(session, student_name, event)
+    actions = process_telemetry(session, student_id, event)
 
     # Push dashboard update to all in the room
     if actions.get("dashboard_update"):
@@ -753,7 +646,7 @@ async def telemetry(sid, data):
 
     # Generate and send hint if needed
     if actions.get("should_hint"):
-        student = session.students.get(student_name)
+        student = session.students.get(student_id)
         if student:
             if not student.sid:
                 student.sid = sid
@@ -774,13 +667,15 @@ async def telemetry(sid, data):
             )
             target_sid = student.sid or sid
             await sio.emit("hint", {
-                "student_name": student_name,
+                "student_id": student.student_id,
+                "student_name": student.name,
                 "hint": hint_text,
                 "level": student.hint_level,
             }, to=target_sid)
             # Also notify teacher
             await sio.emit("hint_given", {
-                "student_name": student_name,
+                "student_id": student.student_id,
+                "student_name": student.name,
                 "hint": hint_text,
                 "level": student.hint_level,
             }, room=session_id)

@@ -88,7 +88,7 @@ class StudentState:
     def support_signals(self) -> int:
         """How many times this student needed support: hints delivered + help asked for.
 
-        A count of observed events, not a mastery estimate.
+        A count of observed support events, not a learning measure.
         """
         return self.hints_given + len(self.help_requests)
 
@@ -186,8 +186,8 @@ class SessionState:
             "summary": self.summary,
             "student_count": len(self.students),
             "students": {
-                name: s.to_dict(include_code=include_code)
-                for name, s in self.students.items()
+                sid: s.to_dict(include_code=include_code)
+                for sid, s in self.students.items()
             },
             "alerts": self.alerts[-20:],  # last 20
         }
@@ -204,5 +204,5 @@ class SessionState:
             if key == "students":
                 continue
             setattr(session, key, value)
-        session.students = {s.name: s for s in students}
+        session.students = {s.student_id: s for s in students}
         return session

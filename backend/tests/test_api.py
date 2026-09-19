@@ -39,6 +39,7 @@ def make_pdf(paragraphs: list[str]) -> bytes:
 # Raw tokens handed out by the API during a test, so helpers can authenticate later.
 TEACHER_TOKENS: dict[str, str] = {}
 STUDENT_TOKENS: dict[tuple[str, str], str] = {}
+STUDENT_IDS: dict[tuple[str, str], str] = {}
 
 
 async def _remember_tokens(response: httpx.Response) -> None:
@@ -53,6 +54,7 @@ async def _remember_tokens(response: httpx.Response) -> None:
         body = response.json()
         sid = path.split("/")[3]
         STUDENT_TOKENS[(sid, body["student_name"])] = body["student_token"]
+        STUDENT_IDS[(sid, body["student_name"])] = body["student_id"]
 
 
 @pytest_asyncio.fixture
@@ -73,6 +75,10 @@ def th(sid: str) -> dict:
 def sh(sid: str, name: str) -> dict:
     """Student auth headers for a student who joined through ``client``."""
     return {"Authorization": f"Bearer {STUDENT_TOKENS[(sid, name)]}"}
+
+
+def sid_of(sid: str, name: str) -> str:
+    return STUDENT_IDS[(sid, name)]
 
 
 async def create(client, task_description="Sum a list", task_level="medium") -> str:
@@ -109,7 +115,7 @@ async def test_full_happy_path(client):
     assert state["task_level"] == "easy"
     assert state["pause_threshold_seconds"] == 60
     assert state["student_count"] == 2
-    assert set(state["students"]) == {"Alice", "Bob"}
+    assert {s["name"] for s in state["students"].values()} == {"Alice", "Bob"}
     assert state["has_material"] is False
 
     r = await client.post(f"/api/sessions/{sid}/end", headers=th(sid))
@@ -119,14 +125,12 @@ async def test_full_happy_path(client):
     analytics = ended["analytics"]
     assert analytics["total_students"] == 2
     assert analytics["total_hints"] == 0
-    assert analytics["on_track_students"] == 2
-    assert analytics["quiz_accuracy"] is None
-    assert analytics["quiz_submissions"] == 0
-    assert analytics["total_help_requests"] == 0
-    assert analytics["total_support_signals"] == 0
+    assert analytics["quiz_avg_correct_pct"] is None
+    assert analytics["quiz_submitted_count"] == 0
+    assert analytics["help_request_count"] == 0
     assert "avg_understanding_score" not in analytics
-    assert analytics["insights"][0] == "No students required hints in this session."
-    assert [b["label"] for b in analytics["bars"]][:2] == ["Quiz Accuracy", "Quiz Submissions"]
+    assert analytics["insights"][0] == "No quiz evidence yet — run a quiz to see what the class actually got right."
+    assert [b["label"] for b in analytics["bars"]][:2] == ["Quiz submitted", "Quiz avg correct"]
 
     r = await client.get(f"/api/sessions/{sid}")
     assert r.json()["active"] is False
@@ -137,12 +141,12 @@ async def test_full_happy_path(client):
     assert report["session_id"] == sid
     assert report["task_level"] == "easy"
     assert report["analytics"] == analytics
-    assert report["counts"] == {"strong": 0, "mixed": 0, "weak": 0, "no_evidence": 2}
-    assert report["percentages"]["no_evidence"] == 100
+    assert "counts" not in report and "percentages" not in report
+    assert report["evidence_note"] == "No evidence yet"
     assert report["duration_minutes"] == 1  # floor of 60s
     assert report["timeline"]["labels"] == ["0"]
     assert report["timeline"]["data"] == [0]
-    assert [s["name"] for s in report["students"]] == ["Bob", "Alice"]
+    assert [s["name"] for s in report["students"]] == ["Alice", "Bob"]
     assert report["hardest_topics"][0]["name"] in {"Sum", "List"}
 
 
@@ -157,15 +161,33 @@ async def test_join_is_idempotent_per_name_with_token(client):
     assert r.json()["student_count"] == 1
 
 
-async def test_join_taken_name_without_token_is_409(client):
+async def test_duplicate_name_without_token_creates_fresh_student(client):
     sid = await create(client)
-    await client.post(f"/api/sessions/{sid}/join", json={"student_name": "Alice"})
-    r = await client.post(f"/api/sessions/{sid}/join", json={"student_name": "Alice"})
-    assert r.status_code == 409
-    r = await client.post(
-        f"/api/sessions/{sid}/join", json={"student_name": "Alice"}, headers={"Authorization": "Bearer nope"},
+    first = await client.post(f"/api/sessions/{sid}/join", json={"student_name": "Alice"})
+    second = await client.post(f"/api/sessions/{sid}/join", json={"student_name": "Alice"})
+    assert first.status_code == second.status_code == 200
+    assert first.json()["student_id"] != second.json()["student_id"]
+    assert (await client.get(f"/api/sessions/{sid}")).json()["student_count"] == 2
+
+
+async def test_join_token_reuses_student_and_bogus_token_creates_fresh_student(client):
+    sid = await create(client)
+    first = await client.post(f"/api/sessions/{sid}/join", json={"student_name": "Alex"})
+    first_body = first.json()
+    reused = await client.post(
+        f"/api/sessions/{sid}/join",
+        json={"student_name": "Different display name"},
+        headers={"Authorization": f"Bearer {first_body['student_token']}"},
     )
-    assert r.status_code == 409
+    assert reused.status_code == 200
+    assert reused.json()["student_id"] == first_body["student_id"]
+    bogus = await client.post(
+        f"/api/sessions/{sid}/join",
+        json={"student_name": "Alex"},
+        headers={"Authorization": "Bearer bogus-token"},
+    )
+    assert bogus.status_code == 200
+    assert bogus.json()["student_id"] != first_body["student_id"]
 
 
 async def test_join_blank_name_is_400(client):
@@ -193,50 +215,48 @@ async def test_report_reflects_student_hints_and_status(client):
     sid = await create(client)
     await client.post(f"/api/sessions/{sid}/join", json={"student_name": "Zed"})
     session = session_manager.get_session(sid)
-    session.students["Zed"].hints_given = 3
-    session.students["Zed"].status = "red"
+    next(s for s in session.students.values() if s.name == "Zed").hints_given = 3
+    next(s for s in session.students.values() if s.name == "Zed").status = "red"
     r = await client.get(f"/api/sessions/{sid}/report", headers=th(sid))
     report = r.json()
     # Hints alone are never evidence of what the student understood.
-    assert report["counts"] == {"strong": 0, "mixed": 0, "weak": 0, "no_evidence": 1}
+    assert "counts" not in report and "percentages" not in report
     assert report["students"][0] == {
+        "student_id": next(s for s in session.students.values() if s.name == "Zed").student_id,
         "name": "Zed", "hints": 3, "status": "red", "idle_seconds": 0.0,
-        "help_requests": 0, "support_signals": 3, "quiz_score": None,
+        "help_requests": 0, "quiz": None,
     }
-    assert report["analytics"]["critical_students"] == 1
-    assert report["analytics"]["quiz_accuracy"] is None
-    assert report["analytics"]["total_support_signals"] == 3
-    assert session.students["Zed"].to_dict()["quiz_score"] is None
+    assert report["analytics"]["quiz_avg_correct_pct"] is None
+    assert next(s for s in session.students.values() if s.name == "Zed").to_dict()["quiz_score"] is None
 
 
-async def test_needs_follow_up_bar_counts_flagged_students_without_three_hints(client):
+async def test_help_requests_bar_uses_explicit_requests(client):
     sid = await create(client)
     await client.post(f"/api/sessions/{sid}/join", json={"student_name": "Flagged"})
     session = session_manager.get_session(sid)
-    session.students["Flagged"].hints_given = 1
-    session.students["Flagged"].status = "red"
+    next(s for s in session.students.values() if s.name == "Flagged").hints_given = 1
+    next(s for s in session.students.values() if s.name == "Flagged").status = "red"
     analytics = (await client.get(f"/api/sessions/{sid}/report", headers=th(sid))).json()["analytics"]
-    assert analytics["critical_students"] == 1
-    bar = next(b for b in analytics["bars"] if b["value"] == 1.0 and "Follow-up" in b["label"])
-    assert bar["label"] == "Needs Follow-up (>=3 hints or flagged)"
+    assert analytics["help_request_count"] == 0
+    assert [b["label"] for b in analytics["bars"]] == ["Quiz submitted", "Quiz avg correct", "Help requests", "Hints given"]
 
 
 async def test_support_signals_count_hints_and_explicit_help_requests(client):
     sid = await create(client)
     await client.post(f"/api/sessions/{sid}/join", json={"student_name": "Zed"})
     session = session_manager.get_session(sid)
-    zed = session.students["Zed"]
+    zed = next(s for s in session.students.values() if s.name == "Zed")
     zed.hints_given = 2
     zed.help_requests = ["why does this loop stop?"]
-    live = (await client.get(f"/api/sessions/{sid}")).json()["students"]["Zed"]
+    live = (await client.get(f"/api/sessions/{sid}")).json()["students"][zed.student_id]
     assert live["support_signals"] == 3
     assert live["help_requests_count"] == 1
     assert live["quiz_score"] is None
     assert "understanding_score" not in live
     report = (await client.get(f"/api/sessions/{sid}/report", headers=th(sid))).json()
-    assert report["students"][0]["support_signals"] == 3
-    assert report["analytics"]["total_help_requests"] == 1
-    assert report["analytics"]["avg_support_signals"] == 3.0
+    assert report["students"][0]["hints"] == 2
+    assert report["students"][0]["help_requests"] == 1
+    assert report["analytics"]["help_request_count"] == 1
 
 
 async def test_list_sessions_returns_only_the_callers_session(client):
@@ -332,7 +352,7 @@ async def test_submit_quiz_requires_matching_student_token(client):
     await client.post(f"/api/sessions/{sid}/generate-quiz", headers=th(sid))
     await client.post(f"/api/sessions/{sid}/join", json={"student_name": "Ann"})
     await client.post(f"/api/sessions/{sid}/join", json={"student_name": "Bob"})
-    body = {"student_name": "Ann", "answers": {}}
+    body = {"student_id": sid_of(sid, "Ann"), "student_name": "Ann", "answers": {}}
     assert (await client.post(f"/api/sessions/{sid}/submit-quiz", json=body)).status_code == 401
     assert (await client.post(f"/api/sessions/{sid}/submit-quiz", json=body, headers=BAD)).status_code == 403
     # Bob may not submit as Ann.
@@ -340,7 +360,7 @@ async def test_submit_quiz_requires_matching_student_token(client):
     assert r.status_code == 403
     # A student who never joined cannot submit at all.
     r = await client.post(
-        f"/api/sessions/{sid}/submit-quiz", json={"student_name": "Ghost", "answers": {}}, headers=sh(sid, "Bob"),
+        f"/api/sessions/{sid}/submit-quiz", json={"student_id": "ghost", "answers": {}}, headers=sh(sid, "Bob"),
     )
     assert r.status_code == 403
     assert session_manager.get_session(sid).quiz_results == {}
@@ -449,7 +469,7 @@ async def test_submit_quiz_without_quiz_is_400(client):
     sid = await create(client)
     await client.post(f"/api/sessions/{sid}/join", json={"student_name": "A"})
     r = await client.post(
-        f"/api/sessions/{sid}/submit-quiz", json={"student_name": "A", "answers": {}}, headers=sh(sid, "A"),
+        f"/api/sessions/{sid}/submit-quiz", json={"student_id": sid_of(sid, "A"), "answers": {}}, headers=sh(sid, "A"),
     )
     assert r.status_code == 400
     assert r.json()["detail"] == "No quiz available"
@@ -544,7 +564,7 @@ async def test_submit_quiz_grades_answers(client):
     await client.post(f"/api/sessions/{sid}/join", json={"student_name": "Ann"})
     r = await client.post(
         f"/api/sessions/{sid}/submit-quiz",
-        json={"student_name": "Ann", "answers": answers},
+        json={"student_id": sid_of(sid, "Ann"), "student_name": "Ann", "answers": answers},
         headers=sh(sid, "Ann"),
     )
     assert r.status_code == 200
@@ -554,12 +574,42 @@ async def test_submit_quiz_grades_answers(client):
     assert body["score"] == round((len(quiz) - 1) / len(quiz) * 100)
     assert body["results"][0]["is_correct"] is False
 
-    student = session_manager.get_session(sid).students["Ann"]
+    student = next(s for s in session_manager.get_session(sid).students.values() if s.name == "Ann")
     assert student.to_dict()["quiz_score"] == body["score"]
     assert student.to_dict()["quiz_correct"] == body["correct"]
     analytics = (await client.get(f"/api/sessions/{sid}/report", headers=th(sid))).json()["analytics"]
-    assert analytics["quiz_submissions"] == 1
-    assert analytics["quiz_accuracy"] == body["score"]
+    assert analytics["quiz_submitted_count"] == 1
+    assert analytics["quiz_avg_correct_pct"] == body["score"]
+
+
+async def test_quiz_submission_is_once_per_student_but_duplicate_names_can_submit(client):
+    r = await client.post(
+        "/api/sessions/create-from-pdf",
+        files={"file": ("lesson.pdf", make_pdf(LONG_PARAGRAPHS), "application/pdf")},
+    )
+    sid = r.json()["session_id"]
+    await client.post(f"/api/sessions/{sid}/generate-quiz", headers=th(sid))
+    first = (await client.post(f"/api/sessions/{sid}/join", json={"student_name": "Alex"})).json()
+    second = (await client.post(f"/api/sessions/{sid}/join", json={"student_name": "Alex"})).json()
+    first_submit = await client.post(
+        f"/api/sessions/{sid}/submit-quiz",
+        json={"student_id": first["student_id"], "answers": {}},
+        headers={"Authorization": f"Bearer {first['student_token']}"},
+    )
+    assert first_submit.status_code == 200
+    duplicate = await client.post(
+        f"/api/sessions/{sid}/submit-quiz",
+        json={"student_id": first["student_id"], "answers": {}},
+        headers={"Authorization": f"Bearer {first['student_token']}"},
+    )
+    assert duplicate.status_code == 409
+    assert duplicate.json()["detail"] == "Quiz already submitted"
+    second_submit = await client.post(
+        f"/api/sessions/{sid}/submit-quiz",
+        json={"student_id": second["student_id"], "answers": {}},
+        headers={"Authorization": f"Bearer {second['student_token']}"},
+    )
+    assert second_submit.status_code == 200
 
 
 # ── Input normalisation ───────────────────────────────────────────

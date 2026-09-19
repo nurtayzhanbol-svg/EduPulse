@@ -51,30 +51,31 @@ def sio_spy(monkeypatch):
 
 async def test_public_get_session_is_unchanged_without_token(client):
     sid = await create(client)
-    await client.post(f"/api/sessions/{sid}/join", json={"student_name": "Alice"})
-    session_manager.get_session(sid).students["Alice"].current_code = "print('hi')\nprint('there')"
+    joined = await client.post(f"/api/sessions/{sid}/join", json={"student_name": "Alice"})
+    alice_id = joined.json()["student_id"]
+    session_manager.get_session(sid).students[alice_id].current_code = "print('hi')\nprint('there')"
 
     r = await client.get(f"/api/sessions/{sid}")
     assert r.status_code == 200
     body = r.json()
     assert "role" not in body
-    assert "current_code" not in body["students"]["Alice"]
-    assert body["students"]["Alice"]["current_code_lines"] == 2
+    assert "current_code" not in body["students"][alice_id]
+    assert body["students"][alice_id]["current_code_lines"] == 2
 
 
 async def test_teacher_token_gets_full_dashboard_payload(client):
     sid = await create(client)
-    await client.post(f"/api/sessions/{sid}/join", json={"student_name": "Alice"})
+    alice = (await client.post(f"/api/sessions/{sid}/join", json={"student_name": "Alice"})).json()
     await client.post(f"/api/sessions/{sid}/join", json={"student_name": "Bob"})
-    session_manager.get_session(sid).students["Alice"].current_code = "x = 1"
+    session_manager.get_session(sid).students[alice["student_id"]].current_code = "x = 1"
 
     r = await client.get(f"/api/sessions/{sid}", headers=th(sid))
     assert r.status_code == 200
     body = r.json()
     assert body["role"] == "teacher"
     assert body["active"] is True
-    assert set(body["students"]) == {"Alice", "Bob"}
-    assert body["students"]["Alice"]["current_code"] == "x = 1"
+    assert {s["name"] for s in body["students"].values()} == {"Alice", "Bob"}
+    assert body["students"][alice["student_id"]]["current_code"] == "x = 1"
 
 
 async def test_wrong_teacher_token_is_401(client):
@@ -122,7 +123,7 @@ async def test_resume_survives_server_restart(client):
     r = await client.get(f"/api/sessions/{sid}", headers=th(sid))
     assert r.status_code == 200
     assert r.json()["role"] == "teacher"
-    assert list(r.json()["students"]) == ["Alice"]
+    assert len(r.json()["students"]) == 1
 
 
 async def test_teacher_only_endpoints_still_require_token(client):
@@ -150,7 +151,7 @@ async def test_teacher_can_rejoin_socket_room_after_reload(client, sio_spy):
     updates = [(d, kw) for e, d, kw in emitted if e == "dashboard_update"]
     assert len(updates) == 2
     assert updates[-1][1] == {"to": "sid-t2"}
-    assert "current_code" in updates[-1][0]["students"]["Alice"]
+    assert any("current_code" in s for s in updates[-1][0]["students"].values())
 
 
 # ── samples/ fixtures ─────────────────────────────────────────────

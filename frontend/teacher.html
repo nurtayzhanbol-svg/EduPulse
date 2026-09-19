@@ -1699,13 +1699,13 @@
         function applyDashboard(data) {
             if (!data || !data.students) return;
             students = {};
-            for (const [name, s] of Object.entries(data.students)) {
-                students[name] = { ...s, name };
+            for (const [id, s] of Object.entries(data.students)) {
+                students[id] = { ...s, student_id: id };
             }
             recalcStats();
             updateMetrics();
             renderGrid();
-            if (openStudentName) openStudentModal(openStudentName);
+            if (openStudentId) openStudentModal(openStudentId);
         }
 
         // ── Socket.IO ─────────────────────────────────────────────────
@@ -1860,7 +1860,7 @@
             const prog = Math.round(s.progress || 0);
             const pasteCount = s.paste_events_count || 0;
 
-            return `<div class="student-card ${cardCls}" role="button" tabindex="0" aria-label="Open details for ${s.name.replace(/"/g, '&quot;')}" onclick="openStudentModal('${s.name.replace(/'/g, "\\'")}')" style="cursor: pointer; position: relative;">
+            return `<div class="student-card ${cardCls}" role="button" tabindex="0" aria-label="Open details for ${s.name.replace(/"/g, '&quot;')}" onclick="openStudentModal('${s.student_id.replace(/'/g, "\\'")}')" style="cursor: pointer; position: relative;">
         <div class="s-head">
           <div class="s-info">
             <div class="avatar" style="background:${bg};color:${clr}">${initials}</div>
@@ -1976,15 +1976,15 @@
         function renderReportGridFromAnalytics(analytics) {
             if (!analytics || typeof analytics !== 'object') return;
             const totalStudents = Number(analytics.total_students || 0);
-            const quizAccuracy = analytics.quiz_accuracy === null || analytics.quiz_accuracy === undefined
-                ? null : Math.round(Number(analytics.quiz_accuracy));
+            const quizAccuracy = analytics.quiz_avg_correct_pct === null || analytics.quiz_avg_correct_pct === undefined
+                ? null : Math.round(Number(analytics.quiz_avg_correct_pct));
             const totalHints = Number(analytics.total_hints || 0);
-            const critical = Number(analytics.critical_students || 0);
+            const helpRequests = Number(analytics.help_request_count || 0);
             document.getElementById('reportGrid').innerHTML = `
         <div class="report-stat"><div class="report-val" style="color:var(--teal);font-size:${quizAccuracy === null ? '.9rem' : ''}">${quizAccuracy === null ? 'No evidence yet' : quizAccuracy + '%'}</div><div class="report-lbl">Quiz Accuracy</div></div>
         <div class="report-stat"><div class="report-val">${totalStudents}</div><div class="report-lbl">Students</div></div>
         <div class="report-stat"><div class="report-val" style="color:var(--teal)">${totalHints}</div><div class="report-lbl">AI Hints Sent</div></div>
-        <div class="report-stat"><div class="report-val" style="color:var(--red)">${critical}</div><div class="report-lbl">Need Follow-up</div></div>`;
+        <div class="report-stat"><div class="report-val" style="color:var(--red)">${helpRequests}</div><div class="report-lbl">Help requests</div></div>`;
         }
 
         // ── End Session ───────────────────────────────────────────────
@@ -2053,10 +2053,10 @@
         }
 
         // ── Student Detail Modal ─────────────────────────────────────────
-        let openStudentName = null;
+        let openStudentId = null;
 
-        function openStudentModal(name) {
-            const s = students[name];
+        function openStudentModal(studentId) {
+            const s = students[studentId];
             if (!s) return;
             const initials = s.name.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase();
             document.getElementById('smAvatar').textContent = initials;
@@ -2094,12 +2094,12 @@
             const codeEl = document.getElementById('smCode');
             codeEl.textContent = s.current_code || s.current_code_preview || '// No code written yet';
 
-            openStudentName = name;
+            openStudentId = studentId;
             document.getElementById('studentModal').classList.add('show');
         }
 
         function closeStudentModal() {
-            openStudentName = null;
+            openStudentId = null;
             document.getElementById('studentModal').classList.remove('show');
         }
 

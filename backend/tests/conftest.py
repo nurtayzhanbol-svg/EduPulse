@@ -50,7 +50,8 @@ def make_session(n_students: int = 0, task_level: str = "medium",
     session = SessionState(task_description=task_description, task_level=task_level)
     for i in range(n_students):
         name = f"student{i}"
-        session.students[name] = StudentState(name=name)
+        student = StudentState(name=name, student_id=name)
+        session.students[student.student_id] = student
     return session
 
 
@@ -67,7 +68,7 @@ def session():
 
 @pytest.fixture
 def student(session):
-    return session.students["student0"]
+    return next(iter(session.students.values()))
 
 
 def make_event(event_type: str, **payload) -> TelemetryEvent:

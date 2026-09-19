@@ -1129,7 +1129,7 @@
         // EduPulse Student Workspace — Socket.IO Backend Integration
         // ═══════════════════════════════════════════════════════════════
         const API = '';
-        let socket = null, sessionId = null, studentName = null, studentToken = '';
+        let socket = null, sessionId = null, studentName = null, studentToken = '', studentId = '';
         const STUDENT_TOKEN_KEY = 'edupulse_student_token';
         function studentAuthHeaders(extra = {}) {
             return studentToken ? { ...extra, 'Authorization': 'Bearer ' + studentToken } : extra;
@@ -1311,6 +1311,7 @@
             // Re-joining (e.g. after a reload) presents the token issued for this tab.
             const saved = JSON.parse(sessionStorage.getItem(STUDENT_TOKEN_KEY) || 'null');
             studentToken = (saved && saved.session === sid && saved.name === name) ? saved.token : '';
+            studentId = (saved && saved.session === sid && saved.name === name) ? (saved.student_id || '') : '';
 
             try {
                 const res = await fetch(`${API}/api/sessions/${sid}/join`, {
@@ -1321,7 +1322,8 @@
                 if (!res.ok) throw new Error(await parseApiError(res));
                 const data = await res.json();
                 studentToken = data.student_token || '';
-                sessionStorage.setItem(STUDENT_TOKEN_KEY, JSON.stringify({ session: sid, name, token: studentToken }));
+                studentId = data.student_id || '';
+                sessionStorage.setItem(STUDENT_TOKEN_KEY, JSON.stringify({ session: sid, name, token: studentToken, student_id: studentId }));
 
                 showWorkspace(name, sid);
                 initSocket(sid, name);
@@ -1360,7 +1362,7 @@
             socket.on('connect', () => {
                 setConn('teal', '● Connected');
                 document.getElementById('connBanner').style.display = 'none';
-                socket.emit('join_room', { session_id: sid, role: 'student', student_name: name, student_token: studentToken });
+                socket.emit('join_room', { session_id: sid, role: 'student', student_name: name, student_id: studentId, student_token: studentToken });
             });
             socket.on('disconnect', () => {
                 setConn('red', '✕ Disconnected — reconnecting…');
@@ -1373,7 +1375,7 @@
 
             // Receive hints from the server
             socket.on('hint', (data) => {
-                if (data.student_name === studentName || !data.student_name) {
+                if (!data.student_id || data.student_id === studentId) {
                     showHint(data.hint, data.level || 0);
                     hintLevel = data.level || 0;
                     clearHintBusy();
@@ -1469,6 +1471,7 @@
             socket.emit('telemetry', {
                 session_id: sessionId,
                 student_name: studentName,
+                student_id: studentId,
                 student_token: studentToken,
                 event: {
                     event_type: eventType,
@@ -1663,7 +1666,7 @@
                 const res = await fetch(`${API}/api/sessions/${sessionId}/submit-quiz`, {
                     method: 'POST',
                     headers: studentAuthHeaders({ 'Content-Type': 'application/json' }),
-                    body: JSON.stringify({ student_name: studentName, answers }),
+                    body: JSON.stringify({ student_id: studentId, student_name: studentName, answers }),
                 });
                 if (!res.ok) throw new Error(await parseApiError(res));
                 const data = await res.json();
