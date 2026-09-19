@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 from datetime import datetime
+import difflib
 from models import SessionState, StudentState, TelemetryEvent
 from ai_engine import code_at_last_hint
 
@@ -23,9 +24,6 @@ AUTO_HINT_MIN_IDLE_SECONDS = 90
 # A confusion episode must have been over for this long before a new one can alert;
 # while an episode is ongoing the teacher is never re-alerted.
 CONFUSION_SPIKE_QUIET_SECONDS = 60
-CONFUSION_SPIKE_DEDUP_SECONDS = 300
-MAX_HINTS_PER_STUDENT = 5
-
 def _pause_threshold(session: SessionState) -> int:
     return max(30, int(session.pause_threshold_seconds))
 
@@ -86,6 +84,10 @@ def process_telemetry(session: SessionState, student_id: str, event: TelemetryEv
         student.keystrokes_since_stall += count
         if student.keystrokes_since_stall >= RECOVERY_KEYSTROKES:
             student.last_help_at = 0
+        if student.total_keystrokes > 0:
+            rate = student.total_backspaces / student.total_keystrokes
+            if rate > BACKSPACE_RATE_THRESHOLD:
+                student.frustration_score = min(1.0, student.frustration_score + 0.1)
 
     elif event.event_type == "idle":
         secs = event.payload.get("idle_seconds", 0)
@@ -98,11 +100,15 @@ def process_telemetry(session: SessionState, student_id: str, event: TelemetryEv
         else:
             student.idle_seconds = max(float(secs or 0), paused_for)
         pause_threshold = max(30, int(getattr(session, "pause_threshold_seconds", IDLE_CRITICAL_SECONDS)))
+        warning_threshold = max(15, int(pause_threshold * 0.5))
         critical_threshold = _auto_hint_idle_threshold(session, student)
 
         if student.idle_seconds >= critical_threshold:
+            student.frustration_score = min(1.0, student.frustration_score + 0.12)
             if has_started_work and _auto_hint_allowed(student, now):
                 _propose_auto_hint(actions, student, "idle_threshold_exceeded", now)
+        elif student.idle_seconds >= warning_threshold:
+            student.frustration_score = min(1.0, student.frustration_score + 0.05)
 
     elif event.event_type == "paste":
         length = event.payload.get("length", 0)
@@ -153,6 +159,7 @@ def process_telemetry(session: SessionState, student_id: str, event: TelemetryEv
 
         pause_threshold = _auto_hint_idle_threshold(session, student)
         if has_started_work and student.idle_seconds >= pause_threshold:
+            student.frustration_score = min(1.0, student.frustration_score + 0.08)
             if _auto_hint_allowed(student, now):
                 _propose_auto_hint(actions, student, "pause_threshold_exceeded", now)
 
@@ -171,8 +178,10 @@ def refresh_status(student: StudentState, session: SessionState, now: float | No
     _update_status(student, session, now)
 
 
-def _code_delta(current: str, previous: str) -> int:
-    return sum(1 for a, b in zip(current, previous) if a != b) + abs(len(current) - len(previous))
+def _code_delta(a: str, b: str) -> int:
+    matcher = difflib.SequenceMatcher(None, a, b, autojunk=False)
+    matched = sum(block.size for block in matcher.get_matching_blocks())
+    return len(a) + len(b) - 2 * matched
 
 
 def _update_status(student: StudentState, session: SessionState, now: float | None = None):
@@ -249,11 +258,6 @@ def detect_confusion_spike(session: SessionState, now: float | None = None) -> d
             ),
         }
     return None
-
-
-def is_duplicate_confusion_spike(session: SessionState, now: float | None = None) -> bool:
-    now = datetime.now().timestamp() if now is None else now
-    return any(a.get("type") == "confusion_spike" and now - a.get("timestamp", 0) < CONFUSION_SPIKE_DEDUP_SECONDS for a in session.alerts)
 
 
 def track_confusion_episode(session: SessionState, now: float | None = None) -> dict | None:
