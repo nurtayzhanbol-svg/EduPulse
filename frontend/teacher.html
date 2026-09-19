@@ -2030,15 +2030,15 @@
         function renderReportGridFromAnalytics(analytics) {
             if (!analytics || typeof analytics !== 'object') return;
             const totalStudents = Number(analytics.total_students || 0);
-            const quizAccuracy = analytics.quiz_accuracy === null || analytics.quiz_accuracy === undefined
-                ? null : Math.round(Number(analytics.quiz_accuracy));
+            const quizAccuracy = analytics.quiz_avg_correct_pct === null || analytics.quiz_avg_correct_pct === undefined
+                ? null : Math.round(Number(analytics.quiz_avg_correct_pct));
             const totalHints = Number(analytics.total_hints || 0);
-            const critical = Number(analytics.critical_students || 0);
+            const helpRequests = Number(analytics.help_request_count || 0);
             document.getElementById('reportGrid').innerHTML = `
         <div class="report-stat"><div class="report-val" style="color:var(--teal);font-size:${quizAccuracy === null ? '.9rem' : ''}">${quizAccuracy === null ? 'No evidence yet' : quizAccuracy + '%'}</div><div class="report-lbl">Quiz Accuracy</div></div>
         <div class="report-stat"><div class="report-val">${totalStudents}</div><div class="report-lbl">Students</div></div>
         <div class="report-stat"><div class="report-val" style="color:var(--teal)">${totalHints}</div><div class="report-lbl">AI Hints Sent</div></div>
-        <div class="report-stat"><div class="report-val" style="color:var(--red)">${critical}</div><div class="report-lbl">Need Follow-up</div></div>`;
+        <div class="report-stat"><div class="report-val" style="color:var(--red)">${helpRequests}</div><div class="report-lbl">Help requests</div></div>`;
         }
 
         // ── End Session ───────────────────────────────────────────────
