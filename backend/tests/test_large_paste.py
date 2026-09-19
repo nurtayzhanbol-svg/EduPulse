@@ -99,3 +99,53 @@ async def test_report_has_no_plagiarism_section():
     assert "integrity" not in low
     assert "large paste" not in low
     assert "plagiarism" not in ai_engine.SUMMARY_SYSTEM_PROMPT.split("Do not")[0].lower()
+
+
+# ── teacher confirmation gates the report ─────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_paste_counts_in_report_only_after_teacher_confirms():
+    import httpx
+
+    session, teacher_token = session_manager.create_session("Sum a list", "easy")
+    alice, alice_token = session_manager.join_session(session.session_id, "Alice")
+    process_telemetry(session, alice.student_id, make_event("paste", length=5000))
+    process_telemetry(session, alice.student_id, make_event("paste", length=6000))
+    sid_ = session.session_id
+    headers = {"Authorization": f"Bearer {teacher_token}"}
+
+    transport = httpx.ASGITransport(app=main.app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        assert main._build_session_analytics(session)["total_large_pastes"] == 0
+
+        r = await client.post(f"/api/sessions/{sid_}/paste-signals/confirm", headers=headers,
+                              json={"student_id": alice.student_id, "paste_length": 5000, "timestamp": 1.0})
+        assert r.status_code == 200 and r.json()["confirmed_count"] == 1
+        # Confirming the same observation twice is idempotent.
+        r = await client.post(f"/api/sessions/{sid_}/paste-signals/confirm", headers=headers,
+                              json={"student_id": alice.student_id, "paste_length": 5000, "timestamp": 1.0})
+        assert r.json()["confirmed_count"] == 1
+        assert main._build_session_analytics(session)["total_large_pastes"] == 1
+
+        # Students cannot confirm, and unknown students are rejected.
+        r = await client.post(f"/api/sessions/{sid_}/paste-signals/confirm",
+                              headers={"Authorization": f"Bearer {alice_token}"},
+                              json={"student_id": alice.student_id})
+        assert r.status_code in (401, 403)
+        r = await client.post(f"/api/sessions/{sid_}/paste-signals/confirm", headers=headers,
+                              json={"student_id": "nobody"})
+        assert r.status_code == 404
+
+        r = await client.post(f"/api/sessions/{sid_}/end", headers=headers)
+        assert r.status_code == 200
+        assert r.json()["analytics"]["total_large_pastes"] == 1
+
+
+def test_teacher_ui_paste_alert_is_dismissable_and_confirmable():
+    from pathlib import Path
+    html = (Path(__file__).resolve().parents[2] / "frontend" / "teacher.html").read_text()
+    assert "paste-signals/confirm" in html
+    assert 'aria-label="Dismiss alert"' in html
+    for banned in ("plagiarism", "cheating", "High risk"):
+        assert banned.lower() not in html.lower(), banned

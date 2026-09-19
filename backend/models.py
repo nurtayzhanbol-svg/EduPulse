@@ -39,6 +39,12 @@ class NudgeRequest(BaseModel):
     message: str = Field(min_length=1, max_length=280)
 
 
+class ConfirmPasteSignalRequest(BaseModel):
+    student_id: str
+    paste_length: int = 0
+    timestamp: float = 0.0
+
+
 class EndSessionResponse(BaseModel):
     summary: str
     analytics: dict = Field(default_factory=dict)
@@ -209,6 +215,11 @@ class SessionState:
         # Keyed by the server-generated student_id; the display name is only a label.
         self.students: dict[str, StudentState] = {}
         self.alerts: list[dict] = []  # {"type": ..., "message": ..., "timestamp": ...}
+        # Class-wide confusion is alerted once per episode, not once per window.
+        self.confusion_episode_active: bool = False
+        self.confusion_episode_ended_at: float = 0.0
+        # Large-paste signals the teacher explicitly confirmed; only these reach the report.
+        self.confirmed_paste_signals: list[dict] = []  # {"student_id", "paste_length", "timestamp"}
         self.summary: str | None = None
         self.analytics: dict = {}
         self.ended_at: float | None = None

@@ -252,7 +252,8 @@ async def test_hard_cap_after_level_three(session, monkeypatch):
 
 
 def test_telemetry_repeated_idle_escalation_is_blocked_by_the_gate(session, monkeypatch):
-    """telemetry.py keeps proposing Level n+1 on idle; the ai_engine gate is what stops it."""
+    """Idle alone never proposes a second hint; and even if a Level-2 proposal reached the
+    ai_engine gate without changed code, the gate would refuse it too."""
     student = session.student_by_name("student0")
     start_work(student)
     student.current_code = "x = 1"
@@ -265,9 +266,9 @@ def test_telemetry_repeated_idle_escalation_is_blocked_by_the_gate(session, monk
     ai_engine._remember_hint_delivery(student, now=0.0)
     student.hint_level = 1
 
-    # telemetry's own 45s pause cooldown has elapsed; it proposes Level 2 automatically.
+    # telemetry's own 45s pause cooldown has elapsed, but unchanged code means no proposal.
     student.last_pause_hint_at = 0.0
     actions = telemetry.process_telemetry(session, sid, make_event("idle", idle_seconds=long_idle))
-    assert actions.get("should_hint") and actions["force_hint_level"] == 2
-    gate = ai_engine.gate_hint(student, actions["hint_reason"], now=1_000.0)
+    assert not actions.get("should_hint")
+    gate = ai_engine.gate_hint(student, "pause_hint", now=1_000.0)
     assert not gate.allowed and gate.reason == "needs_explicit_request"

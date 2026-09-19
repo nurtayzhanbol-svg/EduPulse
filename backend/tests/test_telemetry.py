@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import pytest
 
+import ai_engine
 import telemetry
 from telemetry import (
     IDLE_CRITICAL_SECONDS,
@@ -15,8 +16,8 @@ from telemetry import (
     _pause_interval_for_next_hint,
     _update_status,
     detect_confusion_spike,
-    is_duplicate_confusion_spike,
     process_telemetry,
+    track_confusion_episode,
 )
 from models import StudentState
 
@@ -219,14 +220,39 @@ def test_idle_hint_cooldown_suppresses_second_hint(session, student):
     assert student.frustration_score == pytest.approx(0.24)
 
 
-def test_idle_hint_fires_again_after_cooldown(session, student):
+def test_idle_alone_never_escalates_past_level_one(session, student):
+    """Silence earns one Level-1 nudge; Level 2 needs a help click or changed code."""
     start_work(student)
-    process_telemetry(session, student_id(session, "student0"), make_event("idle", idle_seconds=300))
+    first = process_telemetry(session, student_id(session, "student0"), make_event("idle", idle_seconds=300))
+    assert first["force_hint_level"] == 1
     student.last_pause_hint_at = now_ts() - PAUSE_HINT_COOLDOWN_SECONDS - 1
     student.hint_level = 1
+    ai_engine._remember_hint_delivery(student, now=0.0)
+    again = process_telemetry(session, student_id(session, "student0"), make_event("idle", idle_seconds=300))
+    assert "should_hint" not in again
+    assert "force_hint_level" not in again
+
+
+def test_idle_after_changed_code_may_propose_next_level(session, student):
+    start_work(student)
+    student.hint_level = 1
+    student.set_code("x = 1")
+    ai_engine._remember_hint_delivery(student, now=0.0)
+    student.set_code("x = 1\ny = 2")
+    student.last_pause_hint_at = now_ts() - PAUSE_HINT_COOLDOWN_SECONDS - 1
     again = process_telemetry(session, student_id(session, "student0"), make_event("idle", idle_seconds=300))
     assert again["should_hint"] is True
     assert again["force_hint_level"] == 2
+
+
+def test_auto_hint_needs_longer_idle_than_status_warning(session, student):
+    start_work(student)
+    assert telemetry.AUTO_HINT_MIN_IDLE_SECONDS > 60
+    actions = process_telemetry(
+        session, student_id(session, "student0"),
+        make_event("idle", idle_seconds=telemetry.AUTO_HINT_MIN_IDLE_SECONDS - 1),
+    )
+    assert "should_hint" not in actions
 
 
 def test_idle_hint_just_inside_cooldown_is_suppressed(session, student):
@@ -236,11 +262,17 @@ def test_idle_hint_just_inside_cooldown_is_suppressed(session, student):
     assert "should_hint" not in actions
 
 
-def test_force_hint_level_caps_at_three(session, student):
+def test_no_automatic_hint_after_level_three(session, student):
+    """Hard cap: once Level 3 was given, idle never re-proposes a hint every 45 s."""
     start_work(student)
     student.hint_level = 3
-    actions = process_telemetry(session, student_id(session, "student0"), make_event("idle", idle_seconds=999))
-    assert actions["force_hint_level"] == 3
+    ai_engine._remember_hint_delivery(student, now=0.0)
+    student.set_code("changed")
+    for _ in range(3):
+        student.last_pause_hint_at = 0
+        actions = process_telemetry(session, student_id(session, "student0"), make_event("idle", idle_seconds=999))
+        assert "should_hint" not in actions
+        assert "force_hint_level" not in actions
 
 
 # ── _pause_interval_for_next_hint ─────────────────────────────────
@@ -271,9 +303,13 @@ def test_pause_interval_falls_back_to_idle_warning_without_attribute():
 
 
 def test_critical_idle_threshold_scales_with_hint_level(session, student):
-    """After one hint (level 1) the next idle hint needs 1.5x the base pause (135s on medium)."""
+    """After one hint (level 1) the next idle hint needs 1.5x the base pause (135s on medium),
+    and only once the code has changed since that hint."""
     start_work(student)
     student.hint_level = 1
+    student.set_code("x = 1")
+    ai_engine._remember_hint_delivery(student, now=0.0)
+    student.set_code("x = 1\ny = 2")
     actions = process_telemetry(session, student_id(session, "student0"), make_event("idle", idle_seconds=134))
     assert "should_hint" not in actions
     actions = process_telemetry(session, student_id(session, "student0"), make_event("idle", idle_seconds=135))
@@ -619,19 +655,56 @@ def test_confusion_spike_carries_timestamp():
     assert spike["timestamp"] == pytest.approx(now_ts(), abs=2)
 
 
-def test_confusion_spike_dedup_uses_30_second_window():
+def test_confusion_episode_alerts_once_until_it_ends():
     session = make_session(4)
+    _mark_struggling(session, 3)
     t0 = 1_000_000.0
-    assert is_duplicate_confusion_spike(session, now=t0) is False
-    session.alerts.append({"type": "plagiarism", "timestamp": t0})
-    assert is_duplicate_confusion_spike(session, now=t0) is False
-    session.alerts.append({"type": "confusion_spike", "timestamp": t0})
-    assert is_duplicate_confusion_spike(session, now=t0 + 29.9) is True
-    assert is_duplicate_confusion_spike(session, now=t0 + 30) is False
-    # A later non-spike alert does not shadow the last spike's timestamp.
-    session.alerts.append({"type": "plagiarism", "timestamp": t0 + 29})
-    assert is_duplicate_confusion_spike(session, now=t0 + 29) is True
-    assert telemetry.CONFUSION_SPIKE_DEDUP_SECONDS == 30
+    assert track_confusion_episode(session, now=t0) is not None
+    # Same ongoing episode, however long it lasts: no re-alert.
+    for dt in (5, 31, 120, 900):
+        assert track_confusion_episode(session, now=t0 + dt) is None
+    # Students recover -> episode ends.
+    for s in session.students.values():
+        s.status = "green"
+    assert track_confusion_episode(session, now=t0 + 1000) is None
+    assert session.confusion_episode_active is False
+    # Flapping straight back is not a new episode yet...
+    _mark_struggling(session, 3)
+    assert track_confusion_episode(session, now=t0 + 1001) is None
+    # ...but after the quiet period a fresh episode alerts again.
+    assert track_confusion_episode(session, now=t0 + 1000 + telemetry.CONFUSION_SPIKE_QUIET_SECONDS) is not None
+
+
+def test_confusion_spike_counts_only_currently_stuck():
+    session = make_session(4)
+    _mark_struggling(session, 3)
+    # Two students were stuck earlier but are green now: not counted.
+    for name in ("student0", "student1"):
+        s = session.student_by_name(name)
+        s.status = "green"
+        s.help_requests.extend(["help"] * 5)
+        s.hints_given = 3
+    assert detect_confusion_spike(session) is None
+
+
+def test_confusion_spike_message_suggests_concrete_action():
+    session = make_session(4)
+    _mark_struggling(session, 3)
+    stuck = session.student_by_name("student0")
+    stuck.help_requests.append("I don't get the for loop")
+    stuck.last_support_at = now_ts()
+    spike = detect_confusion_spike(session)
+    assert "stuck right now" in spike["message"]
+    assert "pause and re-explain" in spike["message"]
+    assert "for loop" in spike["message"]
+
+
+def test_confusion_spike_generic_help_falls_back_to_current_step():
+    session = make_session(4)
+    _mark_struggling(session, 3)
+    session.student_by_name("student0").help_requests.append("Student is confused")
+    spike = detect_confusion_spike(session)
+    assert "pause and re-explain the current step" in spike["message"]
 
 
 def test_module_constants_are_as_documented():
@@ -642,3 +715,71 @@ def test_module_constants_are_as_documented():
     assert telemetry.CONFUSION_SPIKE_MIN_STUDENTS == 3
     assert telemetry.CONFUSION_SPIKE_RATIO == 0.5
     assert telemetry.PAUSE_HINT_COOLDOWN_SECONDS == 45
+
+
+# ── status = "needs attention now": recovery in every path ─────────────
+
+
+def _stall(session, student):
+    """Drive a student to red via a long idle."""
+    start_work(student)
+    process_telemetry(session, student_id(session, "student0"), make_event("idle", idle_seconds=IDLE_CRITICAL_SECONDS + 5))
+    assert student.status == "red"
+
+
+def test_status_recovers_after_resumed_typing(session, student):
+    _stall(session, student)
+    process_telemetry(session, student_id(session, "student0"), make_event("keystroke", count=1))
+    assert student.status == "green"
+
+
+def test_status_recovers_after_meaningful_code_update_without_keystrokes(session, student):
+    _stall(session, student)
+    student.set_code("x = 1")
+    process_telemetry(session, student_id(session, "student0"), make_event("code_update", code="x = 1\nprint(x)"))
+    assert student.idle_seconds == 0
+    assert student.status == "green"
+
+
+def test_unchanged_code_update_does_not_clear_a_stall(session, student):
+    _stall(session, student)
+    idle_before = student.idle_seconds
+    process_telemetry(session, student_id(session, "student0"), make_event("code_update", code=student.current_code))
+    assert student.idle_seconds == idle_before
+    assert student.status == "red"
+
+
+def test_status_recovers_after_three_hints(session, student):
+    _stall(session, student)
+    student.hint_level = 3
+    student.hints_given = 3
+    student.last_support_at = now_ts()
+    _update_status(student)
+    assert student.status in ("yellow", "red")
+    process_telemetry(session, student_id(session, "student0"), make_event("keystroke", count=1))
+    assert student.status == "green"
+    assert student.hint_level == 3  # recovery does not erase hint history
+
+
+def test_status_recovers_after_large_paste(session, student):
+    _stall(session, student)
+    process_telemetry(session, student_id(session, "student0"), make_event("paste", length=PASTE_LENGTH_THRESHOLD * 5))
+    assert student.status == "red"  # the paste itself changes nothing
+    student.set_code("x")
+    process_telemetry(session, student_id(session, "student0"), make_event("code_update", code="x = [1, 2, 3]"))
+    assert student.status == "green"
+
+
+def test_help_request_never_lowers_scores_or_locks_status(session, student):
+    start_work(student)
+    student.quiz_score = 100
+    student.progress = 40.0
+    frustration_before = student.frustration_score
+    process_telemetry(session, student_id(session, "student0"), make_event("help", message="stuck on loops"))
+    assert student.quiz_score == 100
+    assert student.progress == 40.0
+    assert student.frustration_score >= frustration_before
+    assert student.status == "yellow"  # attention needed *now*
+    process_telemetry(session, student_id(session, "student0"), make_event("keystroke", count=1))
+    assert student.status == "green"
+    assert student.quiz_score == 100
