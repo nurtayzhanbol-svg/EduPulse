@@ -10,7 +10,7 @@ from datetime import datetime
 
 import socketio
 import uvicorn
-from fastapi import FastAPI, HTTPException, UploadFile, File, Form
+from fastapi import FastAPI, HTTPException, Request, UploadFile, File, Form
 from fastapi.responses import FileResponse
 
 from models import (
@@ -18,6 +18,7 @@ from models import (
     JoinSessionRequest, EndSessionResponse, TelemetryEvent,
 )
 import session_manager
+from auth import bearer_token, require_student, require_teacher, token_matches
 from telemetry import process_telemetry
 from ai_engine import (
     generate_hint,
@@ -30,9 +31,18 @@ from pdf_engine import extract_text_from_pdf
 # ── App setup ──────────────────────────────────────────────────────
 app = FastAPI(title="EduPulse", version="1.0.0")
 
-# Socket.IO server (ASGI mode)
-sio = socketio.AsyncServer(async_mode="asgi", cors_allowed_origins="*")
+# Socket.IO server (ASGI mode). Browser origins allowed to open a socket are
+# read from ALLOWED_ORIGINS (comma-separated); same-origin pages are always fine.
+ALLOWED_ORIGINS = [
+    o.strip()
+    for o in os.environ.get("ALLOWED_ORIGINS", "http://localhost:8000").split(",")
+    if o.strip()
+]
+sio = socketio.AsyncServer(async_mode="asgi", cors_allowed_origins=ALLOWED_ORIGINS)
 socket_app = socketio.ASGIApp(sio, other_asgi_app=app)
+
+# Socket sid -> (session_id, student_name) for sockets that authenticated via join_room.
+_student_sockets: dict[str, tuple[str, str]] = {}
 
 # Serve frontend static files
 FRONTEND_DIR = Path(__file__).resolve().parent.parent / "frontend"
@@ -252,10 +262,11 @@ def _build_report_payload(session) -> dict:
 
 @app.post("/api/sessions", response_model=CreateSessionResponse)
 async def create_session(req: CreateSessionRequest):
-    session = session_manager.create_session(req.task_description, req.task_level)
+    session, teacher_token = session_manager.create_session(req.task_description, req.task_level)
     return CreateSessionResponse(
         session_id=session.session_id,
         join_url=f"/student.html?session={session.session_id}",
+        teacher_token=teacher_token,
     )
 
 
@@ -293,7 +304,7 @@ async def create_session_from_pdf(
         difficulty=normalized_quiz_difficulty,
     )
 
-    session = session_manager.create_session(generated_task_description, normalized_level)
+    session, teacher_token = session_manager.create_session(generated_task_description, normalized_level)
     session.quiz_mode_preference = normalized_mode
     session.quiz_difficulty_preference = normalized_quiz_difficulty
     session.pdf_text = result["text"]
@@ -303,6 +314,7 @@ async def create_session_from_pdf(
     return {
         "session_id": session.session_id,
         "join_url": f"/student.html?session={session.session_id}",
+        "teacher_token": teacher_token,
         "task_description": session.task_description,
         "analysis": session.pdf_analysis,
         "filename": file.filename,
@@ -322,18 +334,25 @@ async def get_session(session_id: str):
 
 
 @app.post("/api/sessions/{session_id}/join")
-async def join_session(session_id: str, req: JoinSessionRequest):
-    student = session_manager.join_session(session_id, req.student_name)
+async def join_session(session_id: str, req: JoinSessionRequest, request: Request):
+    name = req.student_name.strip()
+    if not name:
+        raise HTTPException(400, "Student name is required")
+    student, token = session_manager.join_session(session_id, name, bearer_token(request))
     if student is None:
         raise HTTPException(404, "Session not found or inactive")
-    return {"status": "joined", "student_name": student.name}
+    if token is None:
+        raise HTTPException(409, "That name is already taken in this session. Pick another name.")
+    return {"status": "joined", "student_name": student.name, "student_token": token}
 
 
 @app.post("/api/sessions/{session_id}/end", response_model=EndSessionResponse)
-async def end_session(session_id: str):
-    session = session_manager.end_session(session_id)
+async def end_session(session_id: str, request: Request):
+    session = session_manager.get_session(session_id)
     if session is None:
         raise HTTPException(404, "Session not found")
+    require_teacher(request, session)
+    session_manager.end_session(session_id)
     analytics = _build_session_analytics(session)
     summary = "Session ended. Review class metrics and chart for collective performance insights."
     session.summary = summary
@@ -345,27 +364,36 @@ async def end_session(session_id: str):
 
 
 @app.get("/api/sessions/{session_id}/report")
-async def session_report(session_id: str):
+async def session_report(session_id: str, request: Request):
     session = session_manager.get_session(session_id)
     if session is None:
         raise HTTPException(404, "Session not found")
+    require_teacher(request, session)
     if not getattr(session, "analytics", None):
         session.analytics = _build_session_analytics(session)
     return _build_report_payload(session)
 
 
 @app.get("/api/sessions")
-async def list_sessions():
-    return session_manager.list_sessions()
+async def list_sessions(request: Request):
+    """List the sessions owned by the presented teacher token."""
+    token = bearer_token(request)
+    if token is None:
+        raise HTTPException(401, "Teacher token required")
+    owned = session_manager.list_sessions(token)
+    if not owned:
+        raise HTTPException(403, "Invalid teacher token")
+    return owned
 
 
 # ── PDF Upload & Analysis ─────────────────────────────────────────
 
 @app.post("/api/sessions/{session_id}/upload-pdf")
-async def upload_pdf(session_id: str, file: UploadFile = File(...)):
+async def upload_pdf(session_id: str, request: Request, file: UploadFile = File(...)):
     session = session_manager.get_session(session_id)
     if session is None:
         raise HTTPException(404, "Session not found")
+    require_teacher(request, session)
 
     if not file.filename.lower().endswith(".pdf"):
         raise HTTPException(400, "Only PDF files are supported")
@@ -399,6 +427,7 @@ async def upload_pdf(session_id: str, file: UploadFile = File(...)):
 @app.post("/api/sessions/{session_id}/generate-quiz")
 async def api_generate_quiz(
     session_id: str,
+    request: Request,
     num_questions: int = 5,
     difficulty: Optional[str] = None,
     mode: Optional[str] = None,  # practical or theoretical
@@ -406,6 +435,7 @@ async def api_generate_quiz(
     session = session_manager.get_session(session_id)
     if session is None:
         raise HTTPException(404, "Session not found")
+    require_teacher(request, session)
 
     pdf_text = getattr(session, "pdf_text", "") or ""
     pdf_analysis = getattr(session, "pdf_analysis", "") or ""
@@ -456,12 +486,13 @@ async def api_generate_quiz(
 
 
 @app.post("/api/sessions/{session_id}/submit-quiz")
-async def submit_quiz(session_id: str, submission: dict):
+async def submit_quiz(session_id: str, submission: dict, request: Request):
     session = session_manager.get_session(session_id)
     if session is None:
         raise HTTPException(404, "Session not found")
 
-    student_name = submission.get("student_name", "Unknown")
+    student_name = str(submission.get("student_name", ""))
+    require_student(request, session, student_name)
     answers = submission.get("answers", {})
     quiz = getattr(session, "quiz", None)
 
@@ -537,6 +568,7 @@ async def connect(sid, environ):
 
 @sio.event
 async def disconnect(sid):
+    _student_sockets.pop(sid, None)
     print(f"[WS] Client disconnected: {sid}")
 
 
@@ -552,29 +584,38 @@ async def join_room(sid, data):
         await sio.emit("error", {"message": "Session not found"}, to=sid)
         return
 
-    await sio.enter_room(sid, session_id)
-
-    if role == "student" and student_name:
-        student = session_manager.join_session(session_id, student_name, sid=sid)
-        print(f"[WS] Student '{student_name}' joined session {session_id}")
-        # If quiz already exists, send it to this newly-joined student
-        if hasattr(session, "quiz") and session.quiz:
-            await sio.emit("quiz_available", {
-                "questions": [
-                    {
-                        "question": q["question"],
-                        "options": q["options"],
-                        "task_description": q.get("task_description", ""),
-                    }
-                    for q in session.quiz
-                ],
-            }, to=sid)
-        # Notify teacher dashboard
-        await sio.emit("dashboard_update", session.to_dict(), room=session_id)
-
-    elif role == "teacher":
+    if role == "teacher":
+        if not token_matches(data.get("teacher_token"), session.teacher_token_hash):
+            await sio.emit("error", {"message": "Invalid teacher token"}, to=sid)
+            return
+        await sio.enter_room(sid, session_id)
         print(f"[WS] Teacher joined session {session_id}")
         await sio.emit("dashboard_update", session.to_dict(), to=sid)
+        return
+
+    student = session_manager.authenticate_student(session_id, student_name, data.get("student_token"))
+    if student is None:
+        await sio.emit("error", {"message": "Invalid student token"}, to=sid)
+        return
+
+    _student_sockets[sid] = (session_id, student.name)
+    student.sid = sid
+    await sio.enter_room(sid, session_id)
+    print(f"[WS] Student '{student.name}' joined session {session_id}")
+    # If quiz already exists, send it to this newly-joined student
+    if session.quiz:
+        await sio.emit("quiz_available", {
+            "questions": [
+                {
+                    "question": q["question"],
+                    "options": q["options"],
+                    "task_description": q.get("task_description", ""),
+                }
+                for q in session.quiz
+            ],
+        }, to=sid)
+    # Notify teacher dashboard
+    await sio.emit("dashboard_update", session.to_dict(), room=session_id)
 
 
 @sio.event
@@ -583,6 +624,16 @@ async def telemetry(sid, data):
     session_id = data.get("session_id")
     student_name = data.get("student_name")
     event_data = data.get("event", {})
+
+    # The socket must have authenticated via join_room, and may only report as itself.
+    bound = _student_sockets.get(sid)
+    if bound is None or bound != (session_id, student_name):
+        await sio.emit("error", {"message": "Unauthorized telemetry"}, to=sid)
+        return
+    student = session_manager.authenticate_student(session_id, student_name, data.get("student_token"))
+    if student is None:
+        await sio.emit("error", {"message": "Invalid student token"}, to=sid)
+        return
 
     session = session_manager.get_session(session_id)
     if session is None or not session.active:

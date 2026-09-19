@@ -1438,6 +1438,9 @@
         const API = '';
         let socket = null, sessionId = null;
         let students = {};
+        const TEACHER_TOKEN_KEY = 'edupulse_teacher_token';
+        function teacherToken() { return sessionStorage.getItem(TEACHER_TOKEN_KEY) || ''; }
+        function authHeaders(extra = {}) { return { ...extra, 'Authorization': 'Bearer ' + teacherToken() }; }
         let classStats = { avg: 0, struggling: 0, total: 0, flags: 0, hints: 0 };
         const COLORS = ['#1a7a6e', '#2c3e6b', '#9b4e87', '#c97010', '#1a6a9a', '#7a3a9a'];
 
@@ -1581,6 +1584,7 @@
                 if (!res.ok) throw new Error(await parseApiError(res));
                 const data = await res.json();
                 sessionId = data.session_id;
+                sessionStorage.setItem(TEACHER_TOKEN_KEY, data.teacher_token || '');
                 showDashboard(data);
                 initSocket(sessionId);
             } catch (e) {
@@ -1620,7 +1624,7 @@
 
             socket.on('connect', () => {
                 setConn('connected', 'Connected · Live');
-                socket.emit('join_room', { session_id: sid, role: 'teacher' });
+                socket.emit('join_room', { session_id: sid, role: 'teacher', teacher_token: teacherToken() });
             });
 
             socket.on('disconnect', () => setConn('error', 'Disconnected — live updates paused'));
@@ -1907,7 +1911,7 @@
             summary.removeAttribute('role');
             summary.innerHTML = '<span class="spinner"></span> Generating AI report…';
             try {
-                const res = await fetch(`${API}/api/sessions/${sessionId}/end`, { method: 'POST' });
+                const res = await fetch(`${API}/api/sessions/${sessionId}/end`, { method: 'POST', headers: authHeaders() });
                 if (!res.ok) throw new Error(await parseApiError(res));
                 const data = await res.json();
                 renderReportGridFromAnalytics(data.analytics || {});
@@ -1935,7 +1939,7 @@
             try {
                 const mode = document.getElementById('createModeInput').value;
                 const difficulty = document.getElementById('createDifficultyInput').value;
-                const res = await fetch(`${API}/api/sessions/${sessionId}/generate-quiz?num_questions=5&difficulty=${encodeURIComponent(difficulty)}&mode=${encodeURIComponent(mode)}`, { method: 'POST' });
+                const res = await fetch(`${API}/api/sessions/${sessionId}/generate-quiz?num_questions=5&difficulty=${encodeURIComponent(difficulty)}&mode=${encodeURIComponent(mode)}`, { method: 'POST', headers: authHeaders() });
                 if (!res.ok) throw new Error(await parseApiError(res));
                 const data = await res.json();
                 const n = (data.questions || []).length || data.num_questions || 0;

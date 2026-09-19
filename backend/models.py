@@ -3,7 +3,8 @@
 from __future__ import annotations
 from pydantic import BaseModel, Field
 from datetime import datetime
-import uuid
+
+from auth import new_session_id
 
 
 # ── Request / Response Models ──────────────────────────────────────
@@ -16,6 +17,7 @@ class CreateSessionRequest(BaseModel):
 class CreateSessionResponse(BaseModel):
     session_id: str
     join_url: str
+    teacher_token: str
 
 
 
@@ -52,6 +54,7 @@ class StudentState:
     def __init__(self, name: str, sid: str | None = None):
         self.name = name
         self.sid = sid  # Socket.IO session id
+        self.token_hash: str = ""  # sha256 of the student's bearer token
         self.status: str = "green"  # green | yellow | red
         self.understanding_score: float = 100.0
         self.progress: float = 0.0
@@ -110,7 +113,8 @@ class SessionState:
             "hard": 120,
         }
 
-        self.session_id: str = uuid.uuid4().hex[:8]
+        self.session_id: str = new_session_id()
+        self.teacher_token_hash: str = ""
         self.task_description: str = task_description
         self.task_level: str = level
         self.pause_threshold_seconds: int = pause_threshold_map[level]
