@@ -59,6 +59,10 @@ backend/
   pdf_engine.py       PDF text extraction
   models.py           pydantic models
 frontend/             self-contained HTML pages (inline CSS/JS)
+samples/              demo/test PDF fixtures
+  sample_assignment.pdf  realistic two-page assignment (use this for demos)
+  long_sample.pdf        exactly the 20-word upload minimum
+  too_short.pdf          3 words — rejected by the upload path (used in tests)
 ```
 
 ---

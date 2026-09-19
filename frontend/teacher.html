@@ -1439,7 +1439,18 @@
         let socket = null, sessionId = null;
         let students = {};
         const TEACHER_TOKEN_KEY = 'edupulse_teacher_token';
+        const TEACHER_SESSION_KEY = 'edupulse_teacher_session';
         function teacherToken() { return sessionStorage.getItem(TEACHER_TOKEN_KEY) || ''; }
+        function rememberTeacherSession(sid, token) {
+            sessionStorage.setItem(TEACHER_SESSION_KEY, sid);
+            sessionStorage.setItem(TEACHER_TOKEN_KEY, token || '');
+            history.replaceState(null, '', `teacher.html?session=${encodeURIComponent(sid)}`);
+        }
+        function forgetTeacherSession() {
+            sessionStorage.removeItem(TEACHER_SESSION_KEY);
+            sessionStorage.removeItem(TEACHER_TOKEN_KEY);
+            history.replaceState(null, '', 'teacher.html');
+        }
         function authHeaders(extra = {}) { return { ...extra, 'Authorization': 'Bearer ' + teacherToken() }; }
         let classStats = { avg: 0, struggling: 0, total: 0, flags: 0, hints: 0 };
         const COLORS = ['#1a7a6e', '#2c3e6b', '#9b4e87', '#c97010', '#1a6a9a', '#7a3a9a'];
@@ -1512,7 +1523,68 @@
                     }
                 });
             }
+            resumeSession();
         });
+
+        // ── Resume an existing session after a reload ─────────────────
+        function showResumeFailure(sid, msg) {
+            const status = document.getElementById('createStatus');
+            status.textContent = msg;
+            status.style.color = 'var(--red)';
+            status.setAttribute('role', 'alert');
+            if (sessionStorage.getItem(TEACHER_SESSION_KEY) === sid) forgetTeacherSession();
+            else history.replaceState(null, '', 'teacher.html');
+        }
+
+        async function resumeSession() {
+            const params = new URLSearchParams(window.location.search);
+            const sid = (params.get('session') || sessionStorage.getItem(TEACHER_SESSION_KEY) || '').trim();
+            if (!sid) return;
+            const token = teacherToken();
+            if (!token) {
+                showResumeFailure(sid, `No teacher credentials for session ${sid} in this tab. Start a new session below.`);
+                return;
+            }
+            const status = document.getElementById('createStatus');
+            status.textContent = `Resuming session ${sid}…`;
+            status.style.color = 'var(--text-dim)';
+            status.removeAttribute('role');
+            let res;
+            try {
+                res = await fetch(`${API}/api/sessions/${encodeURIComponent(sid)}`, { headers: authHeaders() });
+            } catch (_) {
+                status.textContent = `Could not reach the server to resume session ${sid}. Check the backend is running and reload.`;
+                status.style.color = 'var(--red)';
+                status.setAttribute('role', 'alert');
+                return;
+            }
+            if (res.status === 404) {
+                showResumeFailure(sid, `Session ${sid} was not found — it may have expired or been deleted. Start a new session below.`);
+                return;
+            }
+            if (res.status === 401 || res.status === 403) {
+                showResumeFailure(sid, `Your teacher credentials for session ${sid} are missing or invalid. Start a new session below.`);
+                return;
+            }
+            if (!res.ok) {
+                showResumeFailure(sid, `Could not resume session ${sid}: ${await parseApiError(res)}`);
+                return;
+            }
+            const data = await res.json();
+            if (!data.active) {
+                showResumeFailure(sid, `Session ${sid} has already ended. Start a new session below.`);
+                status.insertAdjacentHTML('beforeend',
+                    ` <a href="report.html?session=${encodeURIComponent(sid)}" style="color:var(--teal);font-weight:600">Open its report</a>`);
+                return;
+            }
+            sessionId = sid;
+            sessionStorage.setItem(TEACHER_SESSION_KEY, sid);
+            status.textContent = '';
+            showDashboard(data, true);
+            classStats.hints = Object.values(data.students || {}).reduce((a, s) => a + (s.hints_given || 0), 0);
+            applyDashboard(data);
+            initSocket(sessionId);
+        }
 
         // ── Connection bar ────────────────────────────────────────────
         function setConn(state, txt) {
@@ -1584,7 +1656,7 @@
                 if (!res.ok) throw new Error(await parseApiError(res));
                 const data = await res.json();
                 sessionId = data.session_id;
-                sessionStorage.setItem(TEACHER_TOKEN_KEY, data.teacher_token || '');
+                rememberTeacherSession(sessionId, data.teacher_token);
                 showDashboard(data);
                 initSocket(sessionId);
             } catch (e) {
@@ -1598,7 +1670,7 @@
         }
 
         // ── Show Dashboard ────────────────────────────────────────────
-        function showDashboard(data) {
+        function showDashboard(data, resumed = false) {
             const name = document.getElementById('courseName').value || 'Session';
             document.getElementById('setupPanel').style.display = 'none';
             document.getElementById('dashboard').style.display = 'block';
@@ -1615,7 +1687,21 @@
             document.getElementById('joinLinkText').textContent = joinUrl;
             document.getElementById('joinLinkSection').style.display = 'block';
 
-            pushFeed('info', `Session <strong>${sessionId}</strong> created. Share the join link with students.`);
+            pushFeed('info', resumed
+                ? `Reconnected to session <strong>${sessionId}</strong>.`
+                : `Session <strong>${sessionId}</strong> created. Share the join link with students.`);
+        }
+
+        function applyDashboard(data) {
+            if (!data || !data.students) return;
+            students = {};
+            for (const [name, s] of Object.entries(data.students)) {
+                students[name] = { ...s, name };
+            }
+            recalcStats();
+            updateMetrics();
+            renderGrid();
+            if (openStudentName) openStudentModal(openStudentName);
         }
 
         // ── Socket.IO ─────────────────────────────────────────────────
@@ -1633,16 +1719,10 @@
             socket.on('connect_error', () => setConn('reconnecting', 'Reconnecting…'));
 
             // Main dashboard update
-            socket.on('dashboard_update', (data) => {
-                if (!data || !data.students) return;
-                students = {};
-                for (const [name, s] of Object.entries(data.students)) {
-                    students[name] = { ...s, name };
-                }
-                recalcStats();
-                updateMetrics();
-                renderGrid();
-                if (openStudentName) openStudentModal(openStudentName);
+            socket.on('dashboard_update', applyDashboard);
+
+            socket.on('error', (data) => {
+                setConn('error', (data && data.message) || 'Live updates unavailable');
             });
 
             // Alerts

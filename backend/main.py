@@ -379,11 +379,20 @@ async def create_session_from_pdf(
 
 
 @app.get("/api/sessions/{session_id}")
-async def get_session(session_id: str):
+async def get_session(session_id: str, request: Request):
+    """Public session state. A teacher presenting this session's token gets the full
+    dashboard payload (with live code) so a reloaded dashboard can resume."""
     session = session_manager.get_session(session_id)
     if session is None:
         raise HTTPException(404, "Session not found")
-    return session.to_dict()
+    token = bearer_token(request)
+    if token is None:
+        return session.to_dict()
+    if not token_matches(token, session.teacher_token_hash):
+        raise HTTPException(401, "Invalid teacher token")
+    payload = session.to_dict(include_code=True)
+    payload["role"] = "teacher"
+    return payload
 
 
 @app.post("/api/sessions/{session_id}/join")

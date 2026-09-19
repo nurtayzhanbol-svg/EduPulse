@@ -14,10 +14,14 @@ description: Run local EduPulse teacher/student/report browser checks with PDF f
 - The backend serves `/`, `/teacher.html`, `/student.html`, and `/report.html`
   directly. No separate frontend build/server or account login is needed.
 - Check port ownership before starting. After Python changes, restart the local
-  backend; do not silently test an old process. Sessions are in memory.
+  backend; do not silently test an old process. Sessions persist in SQLite
+  (`EDUPULSE_DB`, default `backend/edupulse.db`) and survive a restart.
 - Teacher/student authorization tokens are acquired through create/join UI.
   Keep teacher/report in the same tab because the teacher token is in
-  sessionStorage. Avoid reloading teacher during an active flow.
+  sessionStorage. Reloading the teacher tab (or opening
+  `teacher.html?session=<id>` in the same tab) resumes the dashboard from
+  sessionStorage; a new tab has no token and shows a readable error plus the
+  create-session form.
 - External fonts, marked, and socket.io load from CDNs; record network errors
   separately from local asset errors.
 
@@ -27,8 +31,9 @@ description: Run local EduPulse teacher/student/report browser checks with PDF f
    and check the console before opening the teacher dashboard.
 2. Check the current creation form before assuming plain-text creation exists.
    The PDF form requires at least 20 extracted words.
-3. Verify fixture text before uploading: `dummy.pdf` and `backend/sample.pdf` may
-   be short placeholders; `backend/long_sample.pdf` meets the current minimum.
+3. Fixtures live in top-level `samples/`: `sample_assignment.pdf` is a realistic
+   two-page assignment (use it for demos); `long_sample.pdf` is exactly at the
+   20-word minimum; `too_short.pdf` (3 words) is expected to be rejected.
 4. Launch a session, open its displayed student URL in another tab, and join with
    a unique name. Session IDs may contain non-hexadecimal characters and hyphens;
    do not hard-code a hex-only ID matcher in evidence collectors.
