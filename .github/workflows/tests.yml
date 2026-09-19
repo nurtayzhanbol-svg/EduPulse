@@ -2,6 +2,7 @@ name: tests
 
 on:
   push:
+    branches: [main]
   pull_request:
 
 jobs:
@@ -19,3 +20,40 @@ jobs:
         env:
           OPENAI_API_KEY: ""
           AZURE_OPENAI_API_KEY: ""
+
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install flake8
+      # Errors only: undefined names, unused imports/variables, syntax errors.
+      # Style/formatting is deliberately not enforced.
+      - run: flake8 --select=E9,F backend
+
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+      - run: pip install -r backend/requirements.txt
+      - name: Boot the server and check it serves pages
+        working-directory: backend
+        env:
+          PORT: "8000"
+        run: |
+          python main.py &
+          for _ in $(seq 1 30); do
+            curl -sf http://127.0.0.1:8000/ >/dev/null && break
+            sleep 1
+          done
+          curl -sf http://127.0.0.1:8000/ >/dev/null
+          curl -sf http://127.0.0.1:8000/teacher.html >/dev/null
+          curl -sf http://127.0.0.1:8000/student.html >/dev/null
