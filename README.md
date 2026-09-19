@@ -106,8 +106,8 @@ The server ignores `current_code` / `code` on every other event type and caps st
   is deleted or the process restarts.
 - **Persisted in SQLite (`EDUPULSE_DB`):** per-student aggregates (keystroke/backspace counts, idle
   seconds, frustration score, status, progress), quiz results, help-request messages, hint metadata
-  (count, level, timestamps), paste events as `{length, timestamp}`, a ring buffer of the last 500
-  events as `{type, ts}` only, and `consented_at`. Session rows hold the task, uploaded PDF text /
+  (count, level, timestamps), teacher nudges as `{message, ts}` (last 50), paste events as
+  `{length, timestamp}`, a ring buffer of the last 500 events as `{type, ts}` only, and `consented_at`. Session rows hold the task, uploaded PDF text /
   analysis, alerts, the end-of-session summary and analytics.
 - **Never stored:** keystroke logs, code snapshots, clipboard contents or previews.
 
@@ -122,9 +122,12 @@ With `none (mock hints)` nothing leaves the server.
 
 - Teachers (session token) receive `dashboard_update`, `hint_given`, `alert` (including large-paste
   and confusion-spike alerts) and `quiz_result` in a teacher-only Socket.IO room.
-- Each student receives their own `hint` in a per-student room. The shared session room carries only
-  `quiz_available` and `session_ended`. Students never see other students' hints, alerts, quiz
-  scores or dashboard state.
+- Each student receives their own `hint` and `teacher_message` (a nudge typed by the teacher) in a
+  per-student room. The shared session room carries only `quiz_available`, `task_updated` and an
+  empty `session_ended`; class analytics go to the teacher room only. Students never see other
+  students' hints, alerts, quiz scores or dashboard state.
+- Sessions created from a PDF stay closed until the teacher has reviewed/edited the generated task
+  and pressed Launch (`POST /api/sessions/{id}/launch`); joining earlier returns 409.
 - Large-paste alerts (200+ characters pasted at once) are a neutral, teacher-only, dismissable
   observation, not an automatic cheating label: they never turn a student red, never reset any
   score, and the post-class summary has no plagiarism/integrity section (only an aggregate paste

@@ -6,7 +6,7 @@ import pytest
 
 import session_manager
 import test_api
-from test_api import LONG_PARAGRAPHS, make_pdf, sh, sid_of, stu, th
+from test_api import LONG_PARAGRAPHS, launch, make_pdf, sh, sid_of, stu, th
 
 client = test_api.client  # re-export the httpx fixture (token bookkeeping lives in test_api)
 
@@ -20,6 +20,7 @@ async def quiz_session(client) -> str:
     )
     sid = r.json()["session_id"]
     assert (await client.post(f"/api/sessions/{sid}/generate-quiz", headers=th(sid))).status_code == 200
+    await launch(client, sid)
     return sid
 
 

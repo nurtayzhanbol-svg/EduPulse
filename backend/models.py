@@ -30,6 +30,15 @@ class UpdateTaskRequest(BaseModel):
     task_description: str
 
 
+class LaunchSessionRequest(BaseModel):
+    """Optional final edit of the task, saved atomically with the launch."""
+    task_description: str | None = None
+
+
+class NudgeRequest(BaseModel):
+    message: str = Field(min_length=1, max_length=280)
+
+
 class EndSessionResponse(BaseModel):
     summary: str
     analytics: dict = Field(default_factory=dict)
@@ -62,6 +71,7 @@ class StudentState:
     UNPERSISTED_FIELDS = ("current_code",)
     MAX_EVENTS = 500
     MAX_CODE_CHARS = 20_000
+    MAX_TEACHER_NUDGES = 50
 
     def __init__(self, name: str, sid: str | None = None, student_id: str | None = None):
         self.student_id: str = student_id or new_student_id()  # stable identity; name is a display label
@@ -83,6 +93,9 @@ class StudentState:
         self.hint_level: int = 0
         self.last_activity: float = datetime.now().timestamp()
         self.help_requests: list[str] = []
+        # Messages the teacher sent to this student: {"message", "ts"}; teacher-authored, so
+        # safe to keep, but bounded like every other per-student list.
+        self.teacher_nudges: list[dict] = []
         self.current_code: str = ""
         self.joined_at: float = datetime.now().timestamp()
         self.consented_at: float | None = None
@@ -107,6 +120,13 @@ class StudentState:
         if len(self.events) > self.MAX_EVENTS:
             del self.events[: len(self.events) - self.MAX_EVENTS]
 
+    def log_teacher_nudge(self, message: str, ts: float) -> dict:
+        entry = {"message": message, "ts": ts}
+        self.teacher_nudges.append(entry)
+        if len(self.teacher_nudges) > self.MAX_TEACHER_NUDGES:
+            del self.teacher_nudges[: len(self.teacher_nudges) - self.MAX_TEACHER_NUDGES]
+        return entry
+
     def set_code(self, code: str) -> None:
         self.current_code = code[: self.MAX_CODE_CHARS]
 
@@ -124,6 +144,7 @@ class StudentState:
             "quiz_correct": self.quiz_correct,
             "quiz_total": self.quiz_total,
             "help_requests_count": len(self.help_requests),
+            "teacher_nudges_count": len(self.teacher_nudges),
             "support_signals": self.support_signals,
             "total_keystrokes": self.total_keystrokes,
             "paste_events_count": len(self.paste_events),
@@ -182,6 +203,9 @@ class SessionState:
         self.quiz_difficulty_preference: str = level
         self.created_at: float = datetime.now().timestamp()
         self.active: bool = True
+        # False while the teacher is still reviewing a generated task; students cannot
+        # join until the teacher launches. Hand-written tasks are launched immediately.
+        self.launched: bool = True
         # Keyed by the server-generated student_id; the display name is only a label.
         self.students: dict[str, StudentState] = {}
         self.alerts: list[dict] = []  # {"type": ..., "message": ..., "timestamp": ...}
@@ -210,6 +234,7 @@ class SessionState:
             "pause_threshold_seconds": self.pause_threshold_seconds,
             "has_material": bool(self.pdf_text or self.pdf_analysis),
             "active": self.active,
+            "launched": self.launched,
             "summary": self.summary,
             "student_count": len(self.students),
             "students": {

@@ -90,6 +90,12 @@ async def create(client, task_description="Sum a list", task_level="medium") -> 
     return r.json()["session_id"]
 
 
+async def launch(client, sid: str) -> None:
+    """PDF-created sessions stay closed to students until the teacher launches them."""
+    r = await client.post(f"/api/sessions/{sid}/launch", headers=th(sid), json={})
+    assert r.status_code == 200, r.text
+
+
 # ── Happy path ────────────────────────────────────────────────────
 
 
@@ -208,6 +214,7 @@ async def test_report_before_end_builds_analytics_on_the_fly(client):
         "quiz_submitted_count": 0,
         "quiz_avg_correct_pct": None,
         "total_large_pastes": 0,
+        "teacher_intervention_count": 0,
         "bars": [],
         "insights": [],
     }
@@ -228,7 +235,7 @@ async def test_report_reflects_student_hints_and_status(client):
     assert report["students"][0] == {
         "student_id": session.student_by_name("Zed").student_id,
         "name": "Zed", "hints": 3, "status": "red", "idle_seconds": 0.0,
-        "help_requests": 0, "quiz": None,
+        "help_requests": 0, "teacher_nudges": 0, "quiz": None,
     }
     assert report["analytics"]["quiz_avg_correct_pct"] is None
     assert report["analytics"]["help_request_count"] == 0
@@ -344,6 +351,7 @@ async def test_submit_quiz_requires_matching_student_token(client):
     )
     sid = r.json()["session_id"]
     await client.post(f"/api/sessions/{sid}/generate-quiz", headers=th(sid))
+    await launch(client, sid)
     await client.post(f"/api/sessions/{sid}/join", json={"student_name": "Ann", "consent": True})
     await client.post(f"/api/sessions/{sid}/join", json={"student_name": "Bob", "consent": True})
     body = {"student_id": sid_of(sid, "Ann"), "answers": {}}
@@ -555,6 +563,7 @@ async def test_submit_quiz_grades_answers(client):
     quiz = (await client.post(f"/api/sessions/{sid}/generate-quiz", headers=th(sid))).json()["questions"]
     answers = {str(i): q["correct"] for i, q in enumerate(quiz)}
     answers["0"] = "ZZZ"  # miss the first one
+    await launch(client, sid)
     await client.post(f"/api/sessions/{sid}/join", json={"student_name": "Ann", "consent": True})
     await client.post(f"/api/sessions/{sid}/join", json={"student_name": "Bob", "consent": True})
     r = await client.post(
@@ -753,11 +762,13 @@ async def quiz_session(client) -> str:
     )
     sid = r.json()["session_id"]
     await client.post(f"/api/sessions/{sid}/generate-quiz", headers=th(sid))
+    await launch(client, sid)
     return sid
 
 
 async def test_second_quiz_submission_is_rejected(client):
     sid = await quiz_session(client)
+    await launch(client, sid)
     await client.post(f"/api/sessions/{sid}/join", json={"student_name": "Ann", "consent": True})
     await client.post(f"/api/sessions/{sid}/join", json={"student_name": "Bob", "consent": True})
     body = {"student_id": sid_of(sid, "Ann"), "answers": {}}
