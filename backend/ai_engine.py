@@ -4,70 +4,143 @@ from __future__ import annotations
 import os
 import json
 import re
+import time
 from datetime import datetime
 from models import StudentState, SessionState
 
 # ── OpenAI client (lazy init) ─────────────────────────────────────
 _client = None
-_ai_disabled = False
 _temperature_supported = True
 _json_schema_supported = True
 
 # ── Spend guardrails ──────────────────────────────────────────────
 DEFAULT_TIMEOUT_SECONDS = 30.0
 DEFAULT_MAX_RETRIES = 2
+DEFAULT_BREAKER_FAILURES = 3
+DEFAULT_BREAKER_COOLDOWN_SECONDS = 120.0
 
 _usage = {"calls": 0, "prompt_tokens": 0, "completion_tokens": 0}
 _budget_exhausted = False
+# Tokens spent per session_id, so one runaway session cannot drain the process budget.
+_session_usage: dict[str, int] = {}
+
+# Circuit breaker: consecutive provider failures open it for a cool-off window,
+# after which calls are attempted again (instead of a permanent "AI disabled" latch).
+_breaker_failures = 0
+_breaker_open_until = 0.0
+
+
+def _int_env(name: str, default: int) -> int:
+    try:
+        return max(0, int(os.environ.get(name, str(default))))
+    except ValueError:
+        return default
+
+
+def _float_env(name: str, default: float) -> float:
+    try:
+        return max(0.0, float(os.environ.get(name, str(default))))
+    except ValueError:
+        return default
 
 
 def _token_budget() -> int:
     """Total tokens this process may spend. 0 (the default) means unlimited."""
-    try:
-        return max(0, int(os.environ.get("AI_TOKEN_BUDGET", "0")))
-    except ValueError:
-        return 0
+    return _int_env("AI_TOKEN_BUDGET", 0)
 
 
-def get_usage() -> dict:
-    """Token usage accumulated since process start."""
+def _session_token_budget() -> int:
+    """Tokens a single session may spend. 0 (the default) means unlimited."""
+    return _int_env("AI_SESSION_TOKEN_BUDGET", 0)
+
+
+def session_budget_exhausted(session_id: str | None) -> bool:
+    budget = _session_token_budget()
+    if not budget or not session_id:
+        return False
+    return _session_usage.get(session_id, 0) >= budget
+
+
+def get_usage(session_id: str | None = None) -> dict:
+    """Token usage accumulated since process start (plus one session's usage if given)."""
     total = _usage["prompt_tokens"] + _usage["completion_tokens"]
-    return {**_usage, "total_tokens": total, "budget": _token_budget(), "budget_exhausted": _budget_exhausted}
+    usage = {
+        **_usage,
+        "total_tokens": total,
+        "budget": _token_budget(),
+        "budget_exhausted": _budget_exhausted,
+        "breaker_open": breaker_is_open(),
+    }
+    if session_id is not None:
+        usage["session_tokens"] = _session_usage.get(session_id, 0)
+        usage["session_budget"] = _session_token_budget()
+        usage["session_budget_exhausted"] = session_budget_exhausted(session_id)
+    return usage
 
 
-def _record_usage(response, operation: str):
+def _record_usage(response, operation: str, session_id: str | None = None):
     global _budget_exhausted
     usage = getattr(response, "usage", None)
     if usage is None:
         return
+    prompt_tokens = getattr(usage, "prompt_tokens", 0) or 0
+    completion_tokens = getattr(usage, "completion_tokens", 0) or 0
     _usage["calls"] += 1
-    _usage["prompt_tokens"] += getattr(usage, "prompt_tokens", 0) or 0
-    _usage["completion_tokens"] += getattr(usage, "completion_tokens", 0) or 0
+    _usage["prompt_tokens"] += prompt_tokens
+    _usage["completion_tokens"] += completion_tokens
     total = _usage["prompt_tokens"] + _usage["completion_tokens"]
     print(
-        f"[AI Engine] {operation}: {getattr(usage, 'prompt_tokens', 0)} in / "
-        f"{getattr(usage, 'completion_tokens', 0)} out | session total {total} tokens"
+        f"[AI Engine] {operation}: {prompt_tokens} in / {completion_tokens} out | process total {total} tokens"
     )
     budget = _token_budget()
     if budget and total >= budget and not _budget_exhausted:
         _budget_exhausted = True
         print(f"[AI Engine] Token budget of {budget} reached. Falling back to mock output until restart.")
+    if session_id:
+        _session_usage[session_id] = _session_usage.get(session_id, 0) + prompt_tokens + completion_tokens
+        session_budget = _session_token_budget()
+        if session_budget and _session_usage[session_id] >= session_budget:
+            print(f"[AI Engine] Session {session_id} reached its token budget of {session_budget}. Using mock output for it.")
+
+
+def breaker_is_open(now: float | None = None) -> bool:
+    now = time.time() if now is None else now
+    return now < _breaker_open_until
+
+
+def _open_breaker(reason: str, now: float | None = None):
+    global _breaker_open_until
+    now = time.time() if now is None else now
+    cooldown = _float_env("AI_BREAKER_COOLDOWN_SECONDS", DEFAULT_BREAKER_COOLDOWN_SECONDS)
+    _breaker_open_until = now + cooldown
+    print(f"[AI Engine] Circuit breaker open for {cooldown:.0f}s ({reason}). Using mock output meanwhile.")
+
+
+def _record_success():
+    global _breaker_failures
+    _breaker_failures = 0
 
 
 def _handle_ai_exception(error: Exception, operation: str):
-    global _ai_disabled
+    global _breaker_failures
     message = str(error)
-    if "DeploymentNotFound" in message:
-        if not _ai_disabled:
-            print("[AI Engine] Azure deployment not found. Falling back to mock hints until restart. Set OPENAI_MODEL to a valid Azure deployment name.")
-        _ai_disabled = True
-        return
     print(f"[AI Engine] {operation} error: {error}")
+    if "DeploymentNotFound" in message:
+        # Configuration problem: every call will fail, so trip the breaker right away.
+        _breaker_failures = 0
+        _open_breaker("Azure deployment not found; set OPENAI_MODEL to a valid deployment name")
+        return
+    _breaker_failures += 1
+    if _breaker_failures >= max(1, _int_env("AI_BREAKER_FAILURES", DEFAULT_BREAKER_FAILURES)):
+        _breaker_failures = 0
+        _open_breaker(f"{_int_env('AI_BREAKER_FAILURES', DEFAULT_BREAKER_FAILURES)} consecutive provider errors")
 
 
-def _get_client():
+def _get_client(session_id: str | None = None):
+    """The provider client, or None when callers must use mock output
+    (no key, budget exhausted, session budget exhausted, or breaker open)."""
     global _client
-    if _ai_disabled or _budget_exhausted:
+    if _budget_exhausted or breaker_is_open() or session_budget_exhausted(session_id):
         return None
     if _client is not None:
         return _client
@@ -116,9 +189,13 @@ async def _chat(
     temperature: float,
     json_schema: dict | None = None,
     operation: str = "chat",
+    session_id: str | None = None,
 ):
     """Chat completion that degrades gracefully on models rejecting custom temperature
-    or structured outputs, and records token usage against the budget."""
+    or structured outputs, and records token usage against the process and session budgets.
+
+    The request timeout and retry count come from the client (OPENAI_TIMEOUT_SECONDS /
+    OPENAI_MAX_RETRIES), so they apply to every provider call made here."""
     global _temperature_supported, _json_schema_supported
     messages = [
         {"role": "system", "content": system_prompt},
@@ -136,7 +213,8 @@ async def _chat(
     while True:
         try:
             response = await client.chat.completions.create(model=_get_model(), messages=messages, **kwargs)
-            _record_usage(response, operation)
+            _record_usage(response, operation, session_id)
+            _record_success()
             return response
         except Exception as e:
             message = str(e)
@@ -151,9 +229,9 @@ async def _chat(
             raise
 
 
-def is_ai_available() -> bool:
-    """Return True when a usable AI client is configured."""
-    return _get_client() is not None
+def is_ai_available(session_id: str | None = None) -> bool:
+    """Return True when a usable AI client is configured (and not budget/breaker blocked)."""
+    return _get_client(session_id) is not None
 
 
 def _extract_material_anchors(class_material: str, limit: int = 4) -> list[str]:
@@ -206,6 +284,77 @@ def _material_required_hint(student_name: str) -> str:
     )
 
 
+# ── Hint gating (explicit-first) ──────────────────────────────────
+# Automatic triggers (idle / pause) may deliver at most one Level-1 nudge; Levels 2 and 3
+# need an explicit help request or evidence the student changed their code since the last
+# hint. Every student also has a cooldown between hints and a hard cap after Level 3.
+
+DEFAULT_HINT_COOLDOWN_SECONDS = 60.0
+MAX_HINT_LEVEL = 3
+EXPLICIT_HINT_REASON = "help_request"
+
+# Per-student delivery record: {"last_hint_at": float, "code_at_last_hint": str}
+_hint_state: dict[str, dict] = {}
+
+
+def _hint_cooldown_seconds() -> float:
+    return _float_env("HINT_COOLDOWN_SECONDS", DEFAULT_HINT_COOLDOWN_SECONDS)
+
+
+def _remember_hint_delivery(student: StudentState, now: float | None = None) -> None:
+    _hint_state[student.student_id] = {
+        "last_hint_at": time.time() if now is None else now,
+        "code_at_last_hint": student.current_code,
+    }
+
+
+def code_changed_since_last_hint(student: StudentState) -> bool:
+    """True when the student's code differs from what it was when their last hint was delivered.
+    Unknown (no delivery recorded in this process) counts as unchanged."""
+    state = _hint_state.get(student.student_id)
+    if state is None:
+        return False
+    return student.current_code.strip() != (state["code_at_last_hint"] or "").strip()
+
+
+class HintGate:
+    """Outcome of ``gate_hint``: whether to call the hint generator, why not, and what
+    (if anything) to tell the student instead."""
+
+    def __init__(self, allowed: bool, reason: str = "ok", message: str = ""):
+        self.allowed = allowed
+        self.reason = reason
+        self.message = message
+
+
+def gate_hint(student: StudentState, hint_reason: str, now: float | None = None) -> HintGate:
+    now = time.time() if now is None else now
+    explicit = hint_reason == EXPLICIT_HINT_REASON
+    state = _hint_state.get(student.student_id)
+
+    if student.hint_level >= MAX_HINT_LEVEL:
+        message = (
+            f"{student.name}, you've already received all {MAX_HINT_LEVEL} hint levels for this task. "
+            "Try applying them to your code — your teacher can see you asked for help."
+        ) if explicit else ""
+        return HintGate(False, "level_cap", message)
+
+    if state is not None:
+        elapsed = now - state["last_hint_at"]
+        cooldown = _hint_cooldown_seconds()
+        if elapsed < cooldown:
+            wait = max(1, int(cooldown - elapsed + 0.999))
+            message = (
+                f"{student.name}, give the last hint a try first — the next hint unlocks in {wait}s."
+            ) if explicit else ""
+            return HintGate(False, "cooldown", message)
+
+    if not explicit and student.hint_level >= 1 and not code_changed_since_last_hint(student):
+        return HintGate(False, "needs_explicit_request")
+
+    return HintGate(True)
+
+
 # ── Hint Generation ───────────────────────────────────────────────
 
 HINT_SYSTEM_PROMPT = """You are EduPulse, an empathetic AI teaching assistant embedded in a live coding lab.
@@ -233,6 +382,7 @@ async def generate_hint(
     help_message: str = "",
     class_material: str = "",
     force_level: int | None = None,
+    session_id: str | None = None,
 ) -> str:
     """Generate a progressive hint for a struggling student."""
     # Determine hint level
@@ -243,11 +393,12 @@ async def generate_hint(
     student.hint_level = level
     student.hints_given += 1
     student.last_support_at = datetime.now().timestamp()
+    _remember_hint_delivery(student)
     if not (class_material or "").strip():
         return _material_required_hint(student.name)
     anchors = _extract_material_anchors(class_material)
 
-    client = _get_client()
+    client = _get_client(session_id)
     if client is None:
         return _mock_hint(
             student=student,
@@ -288,7 +439,10 @@ You MUST mention at least one material anchor term exactly.
 Remember: be empathetic, concise, and do NOT give the answer."""
 
     try:
-        response = await _chat(client, HINT_SYSTEM_PROMPT, user_prompt, max_tokens=250, temperature=0.7, operation="hint")
+        response = await _chat(
+            client, HINT_SYSTEM_PROMPT, user_prompt, max_tokens=250, temperature=0.7,
+            operation="hint", session_id=session_id,
+        )
         content = (response.choices[0].message.content or "").strip()
         return _ensure_anchor_in_hint(content, anchors)
     except Exception as e:
@@ -367,7 +521,7 @@ Use clear sections with headers. Be specific and data-driven."""
 
 async def generate_session_summary(session: SessionState) -> str:
     """Generate AI-powered post-class summary."""
-    client = _get_client()
+    client = _get_client(session.session_id)
 
     # Build student data summary
     student_summaries = []
@@ -403,7 +557,10 @@ Session duration: active session
 Generate a comprehensive but concise teaching report."""
 
     try:
-        response = await _chat(client, SUMMARY_SYSTEM_PROMPT, user_prompt, max_tokens=800, temperature=0.5, operation="summary")
+        response = await _chat(
+            client, SUMMARY_SYSTEM_PROMPT, user_prompt, max_tokens=800, temperature=0.5,
+            operation="summary", session_id=session.session_id,
+        )
         return response.choices[0].message.content.strip()
     except Exception as e:
         _handle_ai_exception(e, "Summary generation")
@@ -539,12 +696,13 @@ async def generate_quiz(
     num_questions: int = 5,
     difficulty: str = "medium",
     mode: str = "practical",
+    session_id: str | None = None,
 ) -> list[dict]:
     """Generate quiz questions from PDF/class material.
 
     `mode` may be "practical" (code/problems) or "theoretical" (conceptual).
     """
-    client = _get_client()
+    client = _get_client(session_id)
 
     difficulty_guide = {
         "easy": "Ask basic recall and definition questions. Focus on fundamental concepts. Suitable for beginners.",
@@ -594,6 +752,7 @@ Return ONLY a valid JSON object of the form {{"questions": [...]}}. No markdown,
             temperature=0.6,
             json_schema=_quiz_schema(mode),
             operation="quiz",
+            session_id=session_id,
         )
         raw = response.choices[0].message.content.strip()
         # Strip markdown code blocks if present
@@ -704,9 +863,9 @@ Provide a structured analysis including:
 Be concise and actionable. Use markdown formatting."""
 
 
-async def analyze_pdf_content(pdf_text: str, task_description: str = "") -> str:
+async def analyze_pdf_content(pdf_text: str, task_description: str = "", session_id: str | None = None) -> str:
     """Analyze PDF content and generate teaching insights."""
-    client = _get_client()
+    client = _get_client(session_id)
     if client is None:
         return _mock_pdf_analysis(pdf_text)
 
@@ -722,6 +881,7 @@ async def analyze_pdf_content(pdf_text: str, task_description: str = "") -> str:
             max_tokens=600,
             temperature=0.5,
             operation="pdf-analysis",
+            session_id=session_id,
         )
         return response.choices[0].message.content.strip()
     except Exception as e:
@@ -733,9 +893,10 @@ async def generate_task_description_from_pdf(
     pdf_text: str,
     mode: str = "practical",
     difficulty: str = "medium",
+    session_id: str | None = None,
 ) -> str:
     """Generate a concise class task description from PDF material."""
-    client = _get_client()
+    client = _get_client(session_id)
     normalized_mode = "theoretical" if str(mode).lower() == "theoretical" else "practical"
     normalized_difficulty = str(difficulty).lower()
     if normalized_difficulty not in {"easy", "medium", "hard"}:
@@ -773,6 +934,7 @@ Material:
             max_tokens=280,
             temperature=0.4,
             operation="task-generation",
+            session_id=session_id,
         )
         task = (response.choices[0].message.content or "").strip()
         if not task:
