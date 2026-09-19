@@ -70,6 +70,24 @@ description: Run local EduPulse teacher/student/report browser checks with PDF f
     socket state separately from the Session Ended overlay: disabling the editor
     does not by itself prove transport disconnection or stopped telemetry.
 
+## Explicit progress and quiz evidence
+
+- Verify typing alone leaves the step count unchanged. Mark one step and check
+  both student header and teacher card update without reloading the teacher.
+  Mark remaining steps and reload the student: completed steps must persist.
+- The completion overlay hides after 1.5 seconds. Use the recording to inspect
+  this transient state; a later screenshot should show the persistent done list.
+- For deterministic mock quizzes, answers B,C,D,B,C are all correct. Use
+  B,A,D,B,C to obtain 4/5 (80%) and Q2 missed by 1 of 1.
+- Join a second student using a fresh tab (not a duplicated authenticated tab),
+  and leave that quiz unanswered. The teacher/report must show no evidence for
+  this student, not 0% correctness.
+- A student reload can reopen the quiz. A second submission should display
+  "You have already submitted this quiz" without replacing the original score.
+- Request one explicit hint before ending, then verify the report Students table
+  separates quiz score, steps, help count and hints. Check the Most-missed
+  Questions card and evidence-based summary against the answers actually sent.
+
 # Evidence
 
 - Record GUI interactions with annotations and screenshot meaningful states.
