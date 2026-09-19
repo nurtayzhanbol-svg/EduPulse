@@ -1,7 +1,7 @@
 """Pydantic models for EduPulse sessions, students, and telemetry."""
 
 from __future__ import annotations
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, StrictBool
 from datetime import datetime
 
 from auth import new_session_id, new_student_id
@@ -23,6 +23,7 @@ class CreateSessionResponse(BaseModel):
 
 class JoinSessionRequest(BaseModel):
     student_name: str
+    consent: StrictBool = False
 
 
 class UpdateTaskRequest(BaseModel):
@@ -43,7 +44,7 @@ class TelemetryEvent(BaseModel):
     payload: dict = Field(default_factory=dict)
     # payload examples:
     #   keystroke:  {"keys_per_second": 3.2}
-    #   paste:      {"length": 523, "content_preview": "def foo..."}
+    #   paste:      {"length": 523}
     #   idle:       {"idle_seconds": 65}
     #   backspace:  {"rate": 0.4}   (ratio of backspace to total keys)
     #   help:       {"message": "I don't understand arrays"}
@@ -57,6 +58,10 @@ class StudentState:
 
     # Attributes that are transient (per-process) and never persisted.
     TRANSIENT_FIELDS = ("sid",)
+    # Live-only attributes: kept in memory for the dashboard, never written to SQLite.
+    UNPERSISTED_FIELDS = ("current_code",)
+    MAX_EVENTS = 500
+    MAX_CODE_CHARS = 20_000
 
     def __init__(self, name: str, sid: str | None = None, student_id: str | None = None):
         self.student_id: str = student_id or new_student_id()  # stable identity; name is a display label
@@ -80,8 +85,9 @@ class StudentState:
         self.help_requests: list[str] = []
         self.current_code: str = ""
         self.joined_at: float = datetime.now().timestamp()
+        self.consented_at: float | None = None
         self.frustration_score: float = 0.0
-        self.events: list[dict] = []  # raw event log
+        self.events: list[dict] = []  # ring buffer of {"type", "ts"}, capped at MAX_EVENTS
         self.last_keypress_at: float = datetime.now().timestamp()
         self.last_pause_hint_at: float = 0.0
         # When support last reached this student (hint delivered or help asked for).
@@ -95,6 +101,14 @@ class StudentState:
         A count of observed events, not a mastery estimate.
         """
         return self.hints_given + len(self.help_requests)
+
+    def log_event(self, event_type: str, ts: float) -> None:
+        self.events.append({"type": event_type, "ts": ts})
+        if len(self.events) > self.MAX_EVENTS:
+            del self.events[: len(self.events) - self.MAX_EVENTS]
+
+    def set_code(self, code: str) -> None:
+        self.current_code = code[: self.MAX_CODE_CHARS]
 
     def to_dict(self, include_code: bool = False) -> dict:
         code_preview = ""
@@ -129,8 +143,9 @@ class StudentState:
         return payload
 
     def to_record(self) -> dict:
-        """Full persistable state (everything except transient fields)."""
-        return {k: v for k, v in vars(self).items() if k not in self.TRANSIENT_FIELDS}
+        """Persistable state: aggregates, quiz results, hint metadata and consent — never code."""
+        skip = set(self.TRANSIENT_FIELDS) | set(self.UNPERSISTED_FIELDS)
+        return {k: v for k, v in vars(self).items() if k not in skip}
 
     @classmethod
     def from_record(cls, record: dict) -> "StudentState":

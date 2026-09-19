@@ -51,7 +51,7 @@ def sio_spy(monkeypatch):
 
 async def test_public_get_session_is_unchanged_without_token(client):
     sid = await create(client)
-    r = await client.post(f"/api/sessions/{sid}/join", json={"student_name": "Alice"})
+    r = await client.post(f"/api/sessions/{sid}/join", json={"student_name": "Alice", "consent": True})
     alice_id = r.json()["student_id"]
     session_manager.get_session(sid).students[alice_id].current_code = "print('hi')\nprint('there')"
 
@@ -66,9 +66,9 @@ async def test_public_get_session_is_unchanged_without_token(client):
 
 async def test_teacher_token_gets_full_dashboard_payload(client):
     sid = await create(client)
-    r = await client.post(f"/api/sessions/{sid}/join", json={"student_name": "Alice"})
+    r = await client.post(f"/api/sessions/{sid}/join", json={"student_name": "Alice", "consent": True})
     alice_id = r.json()["student_id"]
-    r = await client.post(f"/api/sessions/{sid}/join", json={"student_name": "Bob"})
+    r = await client.post(f"/api/sessions/{sid}/join", json={"student_name": "Bob", "consent": True})
     bob_id = r.json()["student_id"]
     session_manager.get_session(sid).students[alice_id].current_code = "x = 1"
 
@@ -94,7 +94,7 @@ async def test_wrong_teacher_token_is_401(client):
 
 async def test_student_token_cannot_read_teacher_payload(client):
     sid = await create(client)
-    r = await client.post(f"/api/sessions/{sid}/join", json={"student_name": "Alice"})
+    r = await client.post(f"/api/sessions/{sid}/join", json={"student_name": "Alice", "consent": True})
     student_token = r.json()["student_token"]
     r = await client.get(f"/api/sessions/{sid}", headers={"Authorization": f"Bearer {student_token}"})
     assert r.status_code == 401
@@ -120,7 +120,7 @@ async def test_ended_session_resumes_as_inactive(client):
 async def test_resume_survives_server_restart(client):
     """Session + teacher token still resolve after the in-memory cache is dropped."""
     sid = await create(client)
-    r = await client.post(f"/api/sessions/{sid}/join", json={"student_name": "Alice"})
+    r = await client.post(f"/api/sessions/{sid}/join", json={"student_name": "Alice", "consent": True})
     alice_id = r.json()["student_id"]
     session_manager.reset_cache()
 
@@ -143,15 +143,15 @@ async def test_teacher_can_rejoin_socket_room_after_reload(client, sio_spy):
     """The token a reloaded dashboard restores from sessionStorage re-enters the teacher room."""
     emitted, rooms = sio_spy
     sid = await create(client)
-    r = await client.post(f"/api/sessions/{sid}/join", json={"student_name": "Alice"})
+    r = await client.post(f"/api/sessions/{sid}/join", json={"student_name": "Alice", "consent": True})
     alice_id = r.json()["student_id"]
     token = th(sid)["Authorization"].split(" ", 1)[1]
 
     await main.join_room("sid-t1", {"session_id": sid, "role": "teacher", "teacher_token": token})
     await main.join_room("sid-t2", {"session_id": sid, "role": "teacher", "teacher_token": token})
     assert rooms == [
-        ("sid-t1", sid), ("sid-t1", main.teacher_room(sid)),
-        ("sid-t2", sid), ("sid-t2", main.teacher_room(sid)),
+        ("sid-t1", main.teacher_room(sid)),
+        ("sid-t2", main.teacher_room(sid)),
     ]
     updates = [(d, kw) for e, d, kw in emitted if e == "dashboard_update"]
     assert len(updates) == 2

@@ -43,6 +43,8 @@ All settings come from environment variables — see `.env.example`.
 | `OPENAI_TIMEOUT_SECONDS` | Per-request timeout | `30` |
 | `OPENAI_MAX_RETRIES` | Retries on transient API errors (429/5xx) | `2` |
 | `AI_TOKEN_BUDGET` | Token cap per process; `0` means unlimited | `0` |
+| `EDUPULSE_DB` | SQLite file for sessions and student aggregates | `./edupulse.db` |
+| `SESSION_RETENTION_HOURS` | Hours an ended session is kept before it is deleted automatically | `24` |
 
 Without credentials the AI engine falls back to mock hints, so the app still runs end-to-end.
 The same fallback kicks in once `AI_TOKEN_BUDGET` is reached, so a runaway loop can't drain
@@ -54,7 +56,7 @@ your API credit — every call logs its token usage and the running total.
 backend/
   main.py             FastAPI app, REST endpoints, Socket.IO events
   session_manager.py  session/student lifecycle
-  telemetry.py        event processing, understanding & frustration scoring
+  telemetry.py        event processing, attention status & frustration scoring
   ai_engine.py        hints, quiz generation, PDF analysis
   pdf_engine.py       PDF text extraction
   models.py           pydantic models
@@ -65,443 +67,83 @@ samples/              demo/test PDF fixtures
   too_short.pdf          3 words — rejected by the upload path (used in tests)
 ```
 
----
-
-🧠 Overview
-EduPulse is a real-time classroom analytics and AI-assisted learning platform that enables teachers to:
-Monitor student understanding live
-
-
-Detect confusion patterns
-
-
-Provide adaptive hints automatically
-
-
-Identify potential plagiarism or copy-paste behavior
-
-
-Generate post-class performance reports
-
-
-The system transforms traditional reactive teaching into data-driven adaptive teaching.
-
-🎯 Problem Statement
-In traditional classrooms:
-Teachers cannot see who truly understands the topic.
-
-
-Struggling students remain silent.
-
-
-Some students copy solutions without learning.
-
-
-There is no measurable understanding metric.
-
-
-Post-class evaluation is delayed and incomplete.
-
-
-EduPulse solves this by introducing real-time behavioral and performance analytics.
-
-🏗 System Architecture (High-Level)
-Teacher Dashboard
-       ↓
-Backend API + WebSocket Server
-       ↓
-Real-Time Event Engine
-       ↓
-AI Assistance Engine
-       ↓
-Student Interface
-Core components:
-Teacher Interface
-
-
-Student Workspace
-
-
-Real-Time Monitoring Engine
-
-
-AI Hint & Correction Module
-
-
-Academic Integrity Detector
-
-
-Post-Class Analytics Module
-
-
-
-👨‍🏫 Teacher Workflow
-Step 1 – Create Class Session
-Teacher:
-Logs in
-
-
-Clicks “Start New Session”
-
-
-Uploads:
-
-
-Lecture slides (PDF)
-
-
-Coding tasks / Exercises
-
-
-Expected solutions (optional)
-
-
-System generates:
-Session ID
-
-
-Student access link / QR code
-
-
-
-Step 2 – Students Join
-Students:
-Join session via link
-
-
-Get:
-
-
-Task list
-
-
-Interactive workspace (text editor / coding environment)
-
-
-System starts tracking live metrics.
-
-👨‍🎓 Student Workspace (Core of the System)
-Each student has:
-Task panel
-
-
-Code editor / answer input
-
-
-“I’m confused” button
-
-
-Hint request button
-
-
-While working, the system tracks:
-Typing behavior
-
-
-Edit frequency
-
-
-Idle time
-
-
-Copy-paste events
-
-
-Error rate
-
-
-Hint requests
-
-
-Submission attempts
-
-
-This creates a real-time behavioral profile.
-
-🔴 Real-Time Monitoring Engine
-The backend continuously calculates:
-1️⃣ Understanding Score
-Based on:
-Task completion speed
-
-
-Error rate
-
-
-Hint frequency
-
-
-Correction iterations
-
-
-Example formula:
-Understanding Score =
-(Completion Progress * 0.4)
-+ (Accuracy * 0.3)
-- (Hint Usage * 0.2)
-- (Idle Time * 0.1)
-Displayed as:
-🟢 Good understanding
-
-
-🟡 Struggling
-
-
-🔴 Critical confusion
-
-
-
-2️⃣ Confusion Spike Detection
-If multiple students:
-Pause for long time
-
-
-Make same mistake
-
-
-Request hints at same moment
-
-
-System detects:
-“Topic Confusion Cluster Detected: Recursion Base Case”
-Teacher receives live alert.
-
-🤖 AI Assistance Engine
-When a student struggles:
-Trigger conditions:
-3 failed attempts
-
-
-Long inactivity
-
-
-Repeated same error
-
-
-System automatically:
-Analyzes student attempt
-
-
-Compares with expected logic
-
-
-Provides progressive hint:
-
-
-Level 1 → Concept hint
- Level 2 → Structural hint
- Level 3 → Partial solution
-This prevents full answer giving.
-
-🚨 Academic Integrity Detection
-The system monitors:
-Large paste events
-
-
-Sudden perfect solution insertion
-
-
-Similarity between student submissions
-
-
-Detection methods:
-Copy-paste length threshold
-
-
-Code similarity comparison
-
-
-AI-generated style detection (optional advanced)
-
-
-If detected:
-Flag appears in teacher dashboard
-
-
-Student marked for review
-
-
-No automatic punishment
-
-
-
-📊 Teacher Dashboard (Live)
-Teacher sees:
-Real-Time Overview
-Student
-Progress
-Understanding
-Struggle Risk
-Anna
-70%
-🟢
-Low
-Mark
-30%
-🔴
-High
-
-
-Class-Level Metrics
-Average understanding score
-
-
-Confusion heatmap per topic
-
-
-Hint usage distribution
-
-
-Plagiarism alerts
-
-
-Engagement timeline graph
-
-
-
-📈 Post-Class Analytics Report
-After session ends, system generates:
-Report Includes:
-1️⃣ Class Understanding Index
-Overall comprehension percentage.
-2️⃣ Topic Difficulty Ranking
-Which topics caused most confusion.
-3️⃣ Individual Student Profiles
-Strength areas
-
-
-Weak areas
-
-
-Engagement level
-
-
-Risk indicators
-
-
-4️⃣ Behavioral Insights
-Average idle time
-
-
-Hint dependency rate
-
-
-Copy-paste incidents
-
-
-Delivered as:
-PDF report
-
-
-Downloadable analytics dashboard
-
-
-Email summary
-
-
-
-🧩 Core Functional Modules
-1️⃣ Session Manager
-Handles class creation and lifecycle.
-2️⃣ Real-Time Event Tracker
-Captures:
-Keystrokes (not content, but behavior)
-
-
-Submission attempts
-
-
-Hint requests
-
-
-Copy events
-
-
-3️⃣ AI Hint Engine
-Analyzes attempt → generates structured feedback.
-4️⃣ Similarity Engine
-Compares:
-Student vs expected solution
-
-
-Student vs student
-
-
-5️⃣ Analytics Engine
-Processes raw events into:
-Metrics
-
-
-Risk scoring
-
-
-Reports
-
-
-
-🔐 Privacy & Ethics Layer
-Important for presentation:
-Only behavioral metadata tracked
-
-
-No intrusive screen recording
-
-
-Teachers cannot see private browsing
-
-
-Student consent required
-
-
-This avoids ethical criticism.
-
-🚀 Advanced Future Extensions
-LMS integration (Moodle, Canvas)
-
-
-Long-term learning analytics
-
-
-Burnout prediction
-
-
-AI-powered personalized curriculum
-
-
-Emotion detection (optional advanced research direction)
-
-
-
-💡 Value Proposition
-EduPulse shifts education from:
-Reactive teaching → Predictive & adaptive learning
-Instead of asking:
-“Does everyone understand?”
-The system shows measurable understanding in real time.
-
-🏆 Why This Wins Hackathons
-Real problem
-
-
-Scalable SaaS potential
-
-
-Strong AI integration
-
-
-Real-time architecture
-
-
-Ethical awareness
-
-
-Data-driven education
-
-
-Visual dashboard demo
-
-
-
-🎤 30-Second Pitch Version
-“EduPulse is a real-time AI-powered classroom intelligence system that tracks student understanding, detects confusion patterns, provides adaptive hints, flags copy-paste behavior, and generates post-class analytics reports — transforming traditional classrooms into data-driven adaptive learning environments.”
-
+## What EduPulse does
+
+- **Teacher** creates a session (optionally from a class PDF), shares a join link, and watches a live
+  dashboard: per-student attention status (green / yellow / red = "needs attention now"), idle time,
+  help requests, hints sent, paste alerts and quiz scores. The teacher can end the session (post-class
+  report) or delete all of its data.
+- **Students** join by link, work in a plain text editor, can ask "I'm confused" for a progressive AI
+  hint, and answer the teacher's quiz. Quiz results are the only correctness evidence EduPulse shows;
+  behaviour-derived signals (idle time, help requests, paste length) are attention signals, not a
+  measure of learning.
+- **Hints** come from the configured AI provider (Azure OpenAI or OpenAI) or from built-in mock hints
+  when no key is set.
+
+## Privacy & data
+
+This section describes what the code actually does; there are no other data flows.
+
+### What the student page sends
+
+| Event | Payload | When |
+| --- | --- | --- |
+| `keystroke` / `backspace` | `count`, `key_ts` (timestamp) | on each key — never the key itself |
+| `idle` | `idle_seconds` | every 5 s |
+| `paste` | `length` only — the pasted text is never sent | on paste |
+| `help` | `message`, `current_code` (full editor contents) | when the student asks for a hint |
+| `code_update` | `code` (full editor contents) | at most once per 15 s while typing, plus once 3 s after typing stops |
+| `task_complete` | `task_id`, `tasks_completed` | when the student marks a task done |
+| quiz submission (REST) | chosen answers | when the student submits the quiz |
+
+The server ignores `current_code` / `code` on every other event type and caps stored code at
+20 000 characters.
+
+### What the server keeps
+
+- **In memory only, while the session is live:** the latest editor code per student (for the teacher's
+  live code view and for hint generation). It is never written to disk and is gone when the session
+  is deleted or the process restarts.
+- **Persisted in SQLite (`EDUPULSE_DB`):** per-student aggregates (keystroke/backspace counts, idle
+  seconds, frustration score, status, progress), quiz results, help-request messages, hint metadata
+  (count, level, timestamps), paste events as `{length, timestamp}`, a ring buffer of the last 500
+  events as `{type, ts}` only, and `consented_at`. Session rows hold the task, uploaded PDF text /
+  analysis, alerts, the end-of-session summary and analytics.
+- **Never stored:** keystroke logs, code snapshots, clipboard contents or previews.
+
+### Who processes it
+
+Help messages and the editor code sent with `help` / `code_update` are forwarded to the configured AI
+provider to generate hints and quizzes. `GET /api/config` reports which one is in use so the consent
+notice is truthful: `{"ai_provider": "Azure OpenAI" | "OpenAI" | "none (mock hints)", "session_retention_hours": 24}`.
+With `none (mock hints)` nothing leaves the server.
+
+### Who can see what
+
+- Teachers (session token) receive `dashboard_update`, `hint_given`, `alert` (including large-paste
+  and confusion-spike alerts) and `quiz_result` in a teacher-only Socket.IO room.
+- Each student receives their own `hint` in a per-student room. The shared session room carries only
+  `quiz_available` and `session_ended`. Students never see other students' hints, alerts, quiz
+  scores or dashboard state.
+- Large-paste alerts are a neutral, teacher-only signal, not an automatic cheating label.
+
+### Consent, retention, deletion
+
+- The join form shows a consent notice (what is collected, who processes it, how long it is kept,
+  that the teacher can delete it). Joining requires `{"student_name": ..., "consent": true}`;
+  `POST /api/sessions/{id}/join` returns 400 otherwise and records `consented_at`.
+- Ended sessions are deleted `SESSION_RETENTION_HOURS` (default 24) after they end. A background
+  task runs the purge every 15 minutes; it also runs at startup and when a session ends. Active
+  sessions are never purged automatically.
+- `DELETE /api/sessions/{id}` (teacher token) emits `session_ended` to the session, removes the
+  session and all of its students from SQLite and memory, and returns 204. The teacher dashboard
+  exposes this as "Delete session data".
+
+## Development
+
+```bash
+cd backend && pytest -q
+python -m flake8 --select=E9,F backend --exclude backend/venv
+```
+
+See `AGENTS.md` and `docs/product-council-report.md` for product constraints and the agreed scope.
