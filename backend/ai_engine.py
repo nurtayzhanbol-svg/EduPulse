@@ -12,6 +12,46 @@ _ai_disabled = False
 _temperature_supported = True
 _json_schema_supported = True
 
+# ── Spend guardrails ──────────────────────────────────────────────
+DEFAULT_TIMEOUT_SECONDS = 30.0
+DEFAULT_MAX_RETRIES = 2
+
+_usage = {"calls": 0, "prompt_tokens": 0, "completion_tokens": 0}
+_budget_exhausted = False
+
+
+def _token_budget() -> int:
+    """Total tokens this process may spend. 0 (the default) means unlimited."""
+    try:
+        return max(0, int(os.environ.get("AI_TOKEN_BUDGET", "0")))
+    except ValueError:
+        return 0
+
+
+def get_usage() -> dict:
+    """Token usage accumulated since process start."""
+    total = _usage["prompt_tokens"] + _usage["completion_tokens"]
+    return {**_usage, "total_tokens": total, "budget": _token_budget(), "budget_exhausted": _budget_exhausted}
+
+
+def _record_usage(response, operation: str):
+    global _budget_exhausted
+    usage = getattr(response, "usage", None)
+    if usage is None:
+        return
+    _usage["calls"] += 1
+    _usage["prompt_tokens"] += getattr(usage, "prompt_tokens", 0) or 0
+    _usage["completion_tokens"] += getattr(usage, "completion_tokens", 0) or 0
+    total = _usage["prompt_tokens"] + _usage["completion_tokens"]
+    print(
+        f"[AI Engine] {operation}: {getattr(usage, 'prompt_tokens', 0)} in / "
+        f"{getattr(usage, 'completion_tokens', 0)} out | session total {total} tokens"
+    )
+    budget = _token_budget()
+    if budget and total >= budget and not _budget_exhausted:
+        _budget_exhausted = True
+        print(f"[AI Engine] Token budget of {budget} reached. Falling back to mock output until restart.")
+
 
 def _handle_ai_exception(error: Exception, operation: str):
     global _ai_disabled
@@ -26,13 +66,22 @@ def _handle_ai_exception(error: Exception, operation: str):
 
 def _get_client():
     global _client
-    if _ai_disabled:
+    if _ai_disabled or _budget_exhausted:
         return None
     if _client is not None:
         return _client
     api_key = os.environ.get("AZURE_OPENAI_API_KEY") or os.environ.get("OPENAI_API_KEY")
     if not api_key:
         return None
+    try:
+        timeout = float(os.environ.get("OPENAI_TIMEOUT_SECONDS", DEFAULT_TIMEOUT_SECONDS))
+    except ValueError:
+        timeout = DEFAULT_TIMEOUT_SECONDS
+    try:
+        max_retries = int(os.environ.get("OPENAI_MAX_RETRIES", DEFAULT_MAX_RETRIES))
+    except ValueError:
+        max_retries = DEFAULT_MAX_RETRIES
+
     endpoint = os.environ.get("AZURE_OPENAI_ENDPOINT", "")
     if endpoint:
         from openai import AsyncAzureOpenAI
@@ -40,10 +89,17 @@ def _get_client():
             api_key=api_key,
             api_version=os.environ.get("AZURE_OPENAI_API_VERSION", "2024-12-01-preview"),
             azure_endpoint=endpoint,
+            timeout=timeout,
+            max_retries=max_retries,
         )
     else:
         from openai import AsyncOpenAI
-        _client = AsyncOpenAI(api_key=api_key, base_url=os.environ.get("OPENAI_BASE_URL") or None)
+        _client = AsyncOpenAI(
+            api_key=api_key,
+            base_url=os.environ.get("OPENAI_BASE_URL") or None,
+            timeout=timeout,
+            max_retries=max_retries,
+        )
     return _client
 
 
@@ -58,9 +114,10 @@ async def _chat(
     max_tokens: int,
     temperature: float,
     json_schema: dict | None = None,
+    operation: str = "chat",
 ):
     """Chat completion that degrades gracefully on models rejecting custom temperature
-    or structured outputs."""
+    or structured outputs, and records token usage against the budget."""
     global _temperature_supported, _json_schema_supported
     messages = [
         {"role": "system", "content": system_prompt},
@@ -77,7 +134,9 @@ async def _chat(
 
     while True:
         try:
-            return await client.chat.completions.create(model=_get_model(), messages=messages, **kwargs)
+            response = await client.chat.completions.create(model=_get_model(), messages=messages, **kwargs)
+            _record_usage(response, operation)
+            return response
         except Exception as e:
             message = str(e)
             if _temperature_supported and "temperature" in message:
@@ -227,7 +286,7 @@ You MUST mention at least one material anchor term exactly.
 Remember: be empathetic, concise, and do NOT give the answer."""
 
     try:
-        response = await _chat(client, HINT_SYSTEM_PROMPT, user_prompt, max_tokens=250, temperature=0.7)
+        response = await _chat(client, HINT_SYSTEM_PROMPT, user_prompt, max_tokens=250, temperature=0.7, operation="hint")
         content = (response.choices[0].message.content or "").strip()
         return _ensure_anchor_in_hint(content, anchors)
     except Exception as e:
@@ -341,7 +400,7 @@ Session duration: active session
 Generate a comprehensive but concise teaching report."""
 
     try:
-        response = await _chat(client, SUMMARY_SYSTEM_PROMPT, user_prompt, max_tokens=800, temperature=0.5)
+        response = await _chat(client, SUMMARY_SYSTEM_PROMPT, user_prompt, max_tokens=800, temperature=0.5, operation="summary")
         return response.choices[0].message.content.strip()
     except Exception as e:
         _handle_ai_exception(e, "Summary generation")
@@ -517,6 +576,7 @@ Return ONLY a valid JSON object of the form {{"questions": [...]}}. No markdown,
             max_tokens=1500,
             temperature=0.6,
             json_schema=_quiz_schema(mode),
+            operation="quiz",
         )
         raw = response.choices[0].message.content.strip()
         # Strip markdown code blocks if present
@@ -644,6 +704,7 @@ async def analyze_pdf_content(pdf_text: str, task_description: str = "") -> str:
             f"Analyze this material:\n\n{context}",
             max_tokens=600,
             temperature=0.5,
+            operation="pdf-analysis",
         )
         return response.choices[0].message.content.strip()
     except Exception as e:
@@ -694,6 +755,7 @@ Material:
             prompt,
             max_tokens=280,
             temperature=0.4,
+            operation="task-generation",
         )
         task = (response.choices[0].message.content or "").strip()
         if not task:
