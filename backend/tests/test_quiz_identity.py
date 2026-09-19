@@ -33,7 +33,7 @@ async def submit(client, sid: str, name: str, answers=None):
 
 async def test_duplicate_submission_is_a_readable_409_and_keeps_the_first_result(client):
     sid = await quiz_session(client)
-    await client.post(f"/api/sessions/{sid}/join", json={"student_name": "Ann"})
+    await client.post(f"/api/sessions/{sid}/join", json={"student_name": "Ann", "consent": True})
     quiz = session_manager.get_session(sid).quiz
     all_correct = {str(i): q["correct"] for i, q in enumerate(quiz)}
 
@@ -52,8 +52,8 @@ async def test_duplicate_submission_is_a_readable_409_and_keeps_the_first_result
 
 async def test_two_students_with_the_same_display_name_keep_separate_results(client):
     sid = await quiz_session(client)
-    await client.post(f"/api/sessions/{sid}/join", json={"student_name": "Alex"})
-    await client.post(f"/api/sessions/{sid}/join", json={"student_name": "Alex (2)"})
+    await client.post(f"/api/sessions/{sid}/join", json={"student_name": "Alex", "consent": True})
+    await client.post(f"/api/sessions/{sid}/join", json={"student_name": "Alex (2)", "consent": True})
     quiz = session_manager.get_session(sid).quiz
     all_correct = {str(i): q["correct"] for i, q in enumerate(quiz)}
 
@@ -72,13 +72,14 @@ async def test_two_students_with_the_same_display_name_keep_separate_results(cli
     assert set(rows) == {first_id, second_id}
     assert rows[first_id]["score"] == 100.0 and rows[second_id]["score"] == 0.0
     assert rows[first_id]["student_name"] == rows[second_id]["student_name"] == "Alex"
-    assert report["analytics"]["quiz_submissions"] == 2
-    assert report["analytics"]["quiz_accuracy"] == 50.0
+    assert report["analytics"]["quiz_submitted_count"] == 2
+    assert report["analytics"]["quiz_avg_correct_pct"] == 50.0
+    assert [row["student_id"] for row in report["students"]] == [first_id, second_id]
 
 
 async def test_rename_does_not_lose_quiz_results(client):
     sid = await quiz_session(client)
-    await client.post(f"/api/sessions/{sid}/join", json={"student_name": "Ann"})
+    await client.post(f"/api/sessions/{sid}/join", json={"student_name": "Ann", "consent": True})
     ann_id = sid_of(sid, "Ann")
     assert (await submit(client, sid, "Ann", {})).status_code == 200
 
@@ -86,13 +87,14 @@ async def test_rename_does_not_lose_quiz_results(client):
     r = await client.get(f"/api/sessions/{sid}/report", headers=th(sid))
     rows = r.json()["quiz_results"]
     assert [row["student_id"] for row in rows] == [ann_id]
-    assert r.json()["students"][0]["quiz_score"] == 0.0
+    assert r.json()["students"][0]["quiz"]["score"] == 0.0
+    assert r.json()["students"][0]["name"] == "Ann B."
 
 
 async def test_legacy_name_keyed_results_are_migrated_not_crashed(client):
     sid = await quiz_session(client)
-    await client.post(f"/api/sessions/{sid}/join", json={"student_name": "Ann"})
-    await client.post(f"/api/sessions/{sid}/join", json={"student_name": "Bob"})
+    await client.post(f"/api/sessions/{sid}/join", json={"student_name": "Ann", "consent": True})
+    await client.post(f"/api/sessions/{sid}/join", json={"student_name": "Bob", "consent": True})
     ann_id = sid_of(sid, "Ann")
 
     # Simulate a blob persisted before results were id-keyed: name keys, a student who
@@ -115,7 +117,7 @@ async def test_legacy_name_keyed_results_are_migrated_not_crashed(client):
     assert rows["Weird"]["student_name"] == "Weird"
     assert "Ann" not in rows
     assert stu(sid, "Ann").quiz_score == 75.0
-    assert report["analytics"]["quiz_submissions"] == 1
+    assert report["analytics"]["quiz_submitted_count"] == 1
 
     # Ann's legacy result counts as her one submission; Bob can still submit.
     assert (await submit(client, sid, "Ann", {})).status_code == 409
