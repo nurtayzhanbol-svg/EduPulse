@@ -136,6 +136,7 @@ def _build_session_analytics(session) -> dict:
     struggling_students = sum(1 for s in students if s.hints_given >= 1)
     high_struggle_students = sum(1 for s in students if s.hints_given >= 2)
     on_track_students = sum(1 for s in students if s.hints_given == 0 and s.status == "green")
+    # "Needs follow-up": either the student leaned on hints, or telemetry flagged them red.
     critical_students = sum(1 for s in students if s.hints_given >= 3 or s.status == "red")
     confused_students = sum(
         1 for s in students
@@ -162,7 +163,7 @@ def _build_session_analytics(session) -> dict:
         {"label": "On-Track Students", "value": float(on_track_students), "max": float(total_students), "unit": f"/{total_students}"},
         {"label": "Struggling (>=1 hint)", "value": float(struggling_students), "max": float(total_students), "unit": f"/{total_students}"},
         {"label": "High Struggle (>=2 hints)", "value": float(high_struggle_students), "max": float(total_students), "unit": f"/{total_students}"},
-        {"label": "Critical (>=3 hints)", "value": float(critical_students), "max": float(total_students), "unit": f"/{total_students}"},
+        {"label": "Needs Follow-up (>=3 hints or flagged)", "value": float(critical_students), "max": float(total_students), "unit": f"/{total_students}"},
         {"label": "Confused Students", "value": float(confused_students), "max": float(total_students), "unit": f"/{total_students}"},
         {"label": "Avg Understanding", "value": round(avg_score, 1), "max": 100.0, "unit": "%"},
         {"label": "Avg Frustration", "value": round(avg_frustration, 2), "max": 1.0, "unit": ""},
