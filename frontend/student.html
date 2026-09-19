@@ -1146,6 +1146,7 @@
         // ═══════════════════════════════════════════════════════════════
         const API = '';
         let socket = null, sessionId = null, studentName = null, studentId = '', studentToken = '';
+        let idleTimer = null;
         const STUDENT_TOKEN_KEY = 'edupulse_student_token';
         function studentAuthHeaders(extra = {}) {
             return studentToken ? { ...extra, 'Authorization': 'Bearer ' + studentToken } : extra;
@@ -1461,7 +1462,7 @@
 
             // Session ended
             socket.on('session_ended', () => {
-                sessionOver = true;
+                stopSession();
                 document.getElementById('codeArea').disabled = true;
                 const ov = document.getElementById('successOverlay');
                 document.getElementById('successTitle').textContent = 'Session Ended';
@@ -1473,8 +1474,25 @@
             // Errors
             socket.on('error', (data) => {
                 clearHintBusy();
-                showTeacherMsg((data && data.message) || 'Could not process that request.');
+                const msg = (data && data.message) || 'Could not process that request.';
+                if (msg === 'Invalid student token' || msg === 'Session not found') stopSession();
+                showTeacherMsg(msg);
             });
+        }
+
+        // The session is gone (ended, deleted, or our token no longer resolves):
+        // stop all telemetry and forget the token so a reload does not auto-rejoin.
+        function stopSession() {
+            sessionOver = true;
+            clearInterval(idleTimer);
+            idleTimer = null;
+            clearTimeout(codeUpdateThrottleTimer);
+            clearTimeout(codeUpdateSettleTimer);
+            codeUpdateThrottleTimer = null;
+            codeUpdateSettleTimer = null;
+            sessionStorage.removeItem(STUDENT_TOKEN_KEY);
+            sessionId = null;
+            studentToken = '';
         }
 
         function setConn(cls, text) {
@@ -1527,7 +1545,8 @@
 
         // ── IDLE TIMER & TELEMETRY ────────────────────────────────────
         function startIdleTimer() {
-            setInterval(() => {
+            clearInterval(idleTimer);
+            idleTimer = setInterval(() => {
                 idleSeconds = Math.floor((Date.now() - lastKeystroke) / 1000);
                 const sbIdle = document.getElementById('sbIdle');
                 if (sbIdle) sbIdle.textContent = 'Idle: ' + idleSeconds + 's';

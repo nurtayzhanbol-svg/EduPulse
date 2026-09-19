@@ -261,3 +261,56 @@ async def test_retention_sweeper_is_started_in_lifespan(monkeypatch):
     async with main.lifespan(main.app):
         await asyncio.sleep(0.01)
     assert calls
+
+
+# Events that may be addressed to the shared ``session_id`` room, which every student sits in.
+STUDENT_BROADCAST_EVENTS = {"quiz_available", "session_ended", "task_updated"}
+
+
+def test_only_student_broadcasts_target_the_shared_session_room():
+    """Static audit of main.py: every ``sio.emit(..., room=session_id)`` must be a student broadcast."""
+    import ast
+    import inspect
+    tree = ast.parse(inspect.getsource(main))
+    offenders = []
+    for node in ast.walk(tree):
+        if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+                and node.func.attr == "emit" and node.args and isinstance(node.args[0], ast.Constant)):
+            continue
+        event = node.args[0].value
+        for kw in node.keywords:
+            if kw.arg == "room" and isinstance(kw.value, ast.Name) and kw.value.id == "session_id":
+                if event not in STUDENT_BROADCAST_EVENTS:
+                    offenders.append((event, node.lineno))
+    assert offenders == []
+
+
+@pytest.mark.asyncio
+async def test_shared_room_only_receives_student_broadcasts_end_to_end(client, sio_spy):  # noqa: F811
+    emitted, _ = sio_spy
+    session, teacher_token, alice_token, _ = setup_session()
+    sid_ = session.session_id
+    alice_id = sid_of(session, "Alice")
+    await main.join_room("sock-a", {"session_id": sid_, "role": "student",
+                                    "student_id": alice_id, "student_token": alice_token})
+    await main.telemetry("sock-a", {
+        "session_id": sid_, "student_id": alice_id, "student_token": alice_token,
+        "event": {"event_type": "help", "payload": {"message": "stuck", "current_code": "x = 1"}},
+    })
+    await main.telemetry("sock-a", {
+        "session_id": sid_, "student_id": alice_id, "student_token": alice_token,
+        "event": {"event_type": "paste", "payload": {"length": 5000}},
+    })
+    session.quiz = [{"question": "2+2?", "options": ["3", "4"], "correct": "4"}]
+    r = await client.post(f"/api/sessions/{sid_}/submit-quiz",
+                          json={"student_id": alice_id, "answers": {"0": "4"}},
+                          headers={"Authorization": f"Bearer {alice_token}"})
+    assert r.status_code == 200, r.text
+    r = await client.post(f"/api/sessions/{sid_}/end", headers={"Authorization": f"Bearer {teacher_token}"})
+    assert r.status_code == 200, r.text
+
+    names = {e for e, _, _ in emitted}
+    assert {"hint", "hint_given", "alert", "quiz_result", "dashboard_update", "session_ended"} <= names
+    to_shared = {e for e, _, kw in emitted if kw.get("room") == sid_}
+    assert to_shared <= STUDENT_BROADCAST_EVENTS
+    assert "session_ended" in to_shared
