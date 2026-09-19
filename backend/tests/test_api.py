@@ -616,6 +616,7 @@ async def pdf_session_with_students(client, *names: str) -> str:
         files={"file": ("lesson.pdf", make_pdf(LONG_PARAGRAPHS), "application/pdf")},
     )
     sid = r.json()["session_id"]
+    await launch(client, sid)
     for name in names:
         await client.post(f"/api/sessions/{sid}/join", json={"student_name": name, "consent": True})
     return sid

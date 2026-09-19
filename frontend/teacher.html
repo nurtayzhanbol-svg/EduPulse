@@ -1299,6 +1299,7 @@
             <label class="form-label" for="taskDraft">Task description</label>
             <textarea class="form-input" id="taskDraft" rows="14"
                 style="min-height:280px;font-family:'JetBrains Mono',monospace;font-size:.85rem;line-height:1.5"></textarea>
+            <div id="reviewSteps" style="font-size:.85rem;color:var(--text-mid);margin:10px 0;line-height:1.6"></div>
             <p id="reviewStatus" style="font-size:.82rem;color:var(--text-dim);margin:8px 0;min-height:20px" aria-live="polite"></p>
             <button class="btn btn-navy btn-full" id="launchBtn" onclick="launchReviewedTask()">Launch Session →</button>
         </div>
@@ -1735,6 +1736,12 @@
             document.getElementById('setupPanel').style.display = 'none';
             document.getElementById('reviewPanel').style.display = 'block';
             document.getElementById('taskDraft').value = data.task_description || '';
+            const steps = Array.isArray(data.task_steps) ? data.task_steps : [];
+            taskStepCount = steps.length;
+            document.getElementById('reviewSteps').innerHTML = steps.length
+                ? '<strong>Steps students tick off:</strong><ol style="margin:4px 0 0 1.2rem">'
+                  + steps.map(s => `<li>${s.replace(/</g, '&lt;')}</li>`).join('') + '</ol>'
+                : '';
             document.getElementById('reviewStatus').textContent = '';
         }
 
