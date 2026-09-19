@@ -254,7 +254,10 @@ async function init(){
     return;
   }
   try {
-    const res = await fetch(`${API}/api/sessions/${encodeURIComponent(sid)}/report`);
+    const teacherToken = sessionStorage.getItem('edupulse_teacher_token') || '';
+    const res = await fetch(`${API}/api/sessions/${encodeURIComponent(sid)}/report`, {
+      headers: { 'Authorization': 'Bearer ' + teacherToken },
+    });
     const report = await res.json();
     if (!res.ok) throw new Error(report.detail || 'Could not load report');
     setMeta(report);
