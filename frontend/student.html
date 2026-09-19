@@ -1129,7 +1129,7 @@
         // EduPulse Student Workspace — Socket.IO Backend Integration
         // ═══════════════════════════════════════════════════════════════
         const API = '';
-        let socket = null, sessionId = null, studentName = null, studentToken = '';
+        let socket = null, sessionId = null, studentName = null, studentId = '', studentToken = '';
         const STUDENT_TOKEN_KEY = 'edupulse_student_token';
         function studentAuthHeaders(extra = {}) {
             return studentToken ? { ...extra, 'Authorization': 'Bearer ' + studentToken } : extra;
@@ -1321,6 +1321,7 @@
                 if (!res.ok) throw new Error(await parseApiError(res));
                 const data = await res.json();
                 studentToken = data.student_token || '';
+                studentId = data.student_id || '';
                 sessionStorage.setItem(STUDENT_TOKEN_KEY, JSON.stringify({ session: sid, name, token: studentToken }));
 
                 showWorkspace(name, sid);
@@ -1360,7 +1361,7 @@
             socket.on('connect', () => {
                 setConn('teal', '● Connected');
                 document.getElementById('connBanner').style.display = 'none';
-                socket.emit('join_room', { session_id: sid, role: 'student', student_name: name, student_token: studentToken });
+                socket.emit('join_room', { session_id: sid, role: 'student', student_id: studentId, student_token: studentToken });
             });
             socket.on('disconnect', () => {
                 setConn('red', '✕ Disconnected — reconnecting…');
@@ -1373,9 +1374,9 @@
 
             // Receive hints from the server
             socket.on('hint', (data) => {
-                if (data.student_name === studentName || !data.student_name) {
-                    showHint(data.hint, data.level || 0);
-                    hintLevel = data.level || 0;
+                if (data.student_id === studentId || !data.student_id) {
+                    showHint(data.hint, data.level || 1);
+                    hintLevel = data.level || 1;
                     clearHintBusy();
                 }
             });
@@ -1383,6 +1384,14 @@
             // Quiz available
             socket.on('quiz_available', (data) => {
                 showQuiz(data.questions || []);
+            });
+
+            // Teacher edited the task; refresh the brief without touching the student's work
+            socket.on('task_updated', (data) => {
+                tasks = [buildTaskFromDescription(data.task_description || '')];
+                const headline = document.getElementById('taskHeadline');
+                if (headline) headline.textContent = tasks[0].name;
+                renderTaskList();
             });
 
             // Session ended
@@ -1468,7 +1477,7 @@
             const code = document.getElementById('codeArea')?.value || '';
             socket.emit('telemetry', {
                 session_id: sessionId,
-                student_name: studentName,
+                student_id: studentId,
                 student_token: studentToken,
                 event: {
                     event_type: eventType,
@@ -1579,13 +1588,15 @@
 
         // ── HINTS ─────────────────────────────────────────────────────
         function showHint(text, level) {
+            // Hint levels are 1-based on the server: 1 concept, 2 structural, 3 partial solution.
             const levels = ['Concept Hint', 'Structural Hint', 'Partial Solution'];
-            document.getElementById('htLevel').textContent = levels[Math.min(level, 2)];
-            document.getElementById('htCategory').textContent = 'Level ' + (level + 1);
+            const idx = Math.min(Math.max(level, 1), 3) - 1;
+            document.getElementById('htLevel').textContent = levels[idx];
+            document.getElementById('htCategory').textContent = 'Level ' + (idx + 1);
             document.getElementById('htBody').innerHTML = marked.parse(text);
             document.getElementById('hintToast').classList.add('show');
             // Show "deeper hint" button only if not at max level
-            document.getElementById('htMore').style.display = level < 2 ? 'inline-block' : 'none';
+            document.getElementById('htMore').style.display = idx < 2 ? 'inline-block' : 'none';
         }
 
         function closeHint() { document.getElementById('hintToast').classList.remove('show'); }
@@ -1663,7 +1674,7 @@
                 const res = await fetch(`${API}/api/sessions/${sessionId}/submit-quiz`, {
                     method: 'POST',
                     headers: studentAuthHeaders({ 'Content-Type': 'application/json' }),
-                    body: JSON.stringify({ student_name: studentName, answers }),
+                    body: JSON.stringify({ student_id: studentId, answers }),
                 });
                 if (!res.ok) throw new Error(await parseApiError(res));
                 const data = await res.json();

@@ -49,8 +49,8 @@ def make_session(n_students: int = 0, task_level: str = "medium",
     """Build a SessionState with ``n_students`` joined students, bypassing HTTP."""
     session = SessionState(task_description=task_description, task_level=task_level)
     for i in range(n_students):
-        name = f"student{i}"
-        session.students[name] = StudentState(name=name)
+        student = StudentState(name=f"student{i}")
+        session.students[student.student_id] = student
     return session
 
 
@@ -67,7 +67,13 @@ def session():
 
 @pytest.fixture
 def student(session):
-    return session.students["student0"]
+    return session.student_by_name("student0")
+
+
+def student_id(session: SessionState, name: str = "student0") -> str:
+    """The server-generated id of the student displayed as ``name``."""
+    found = session.student_by_name(name)
+    return found.student_id if found is not None else ""
 
 
 def make_event(event_type: str, **payload) -> TelemetryEvent:

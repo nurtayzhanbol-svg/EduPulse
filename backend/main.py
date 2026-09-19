@@ -17,6 +17,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from models import (
     CreateSessionRequest, CreateSessionResponse,
     JoinSessionRequest, EndSessionResponse, TelemetryEvent,
+    UpdateTaskRequest,
 )
 import session_manager
 from auth import bearer_token, require_student, require_teacher, token_matches
@@ -49,7 +50,7 @@ ALLOWED_ORIGINS = [
 sio = socketio.AsyncServer(async_mode="asgi", cors_allowed_origins=ALLOWED_ORIGINS)
 socket_app = socketio.ASGIApp(sio, other_asgi_app=app)
 
-# Socket sid -> (session_id, student_name) for sockets that authenticated via join_room.
+# Socket sid -> (session_id, student_id) for sockets that authenticated via join_room.
 _student_sockets: dict[str, tuple[str, str]] = {}
 
 
@@ -444,6 +445,23 @@ async def join_session(session_id: str, req: JoinSessionRequest, request: Reques
     }
 
 
+@app.patch("/api/sessions/{session_id}/task")
+async def update_task(session_id: str, req: UpdateTaskRequest, request: Request):
+    """Let the teacher review and edit the generated task before students see it."""
+    session = session_manager.get_session(session_id)
+    if session is None:
+        raise HTTPException(404, "Session not found")
+    require_teacher(request, session)
+    description = req.task_description.strip()
+    if not description:
+        raise HTTPException(400, "Task description cannot be empty")
+    session.task_description = description
+    session_manager.persist_session(session)
+    await sio.emit("task_updated", {"task_description": description}, room=session_id)
+    await broadcast_dashboard(session)
+    return {"task_description": description}
+
+
 @app.post("/api/sessions/{session_id}/end", response_model=EndSessionResponse)
 async def end_session(session_id: str, request: Request):
     session = session_manager.get_session(session_id)
@@ -584,13 +602,15 @@ async def submit_quiz(session_id: str, submission: dict, request: Request):
     if session is None:
         raise HTTPException(404, "Session not found")
 
-    student_name = str(submission.get("student_name", ""))
-    require_student(request, session, student_name)
+    student_id = str(submission.get("student_id", ""))
+    require_student(request, session, student_id)
     answers = submission.get("answers", {})
     quiz = getattr(session, "quiz", None)
 
     if not quiz:
         raise HTTPException(400, "No quiz available")
+    if student_id in getattr(session, "quiz_results", {}):
+        raise HTTPException(409, "You have already submitted this quiz.")
 
     # Grade the quiz
     correct = 0
@@ -614,22 +634,23 @@ async def submit_quiz(session_id: str, submission: dict, request: Request):
     # Store results
     if not hasattr(session, "quiz_results"):
         session.quiz_results = {}
-    session.quiz_results[student_name] = {
+    student = session.students[student_id]
+    session.quiz_results[student_id] = {
+        "student_name": student.name,
         "score": score,
         "correct": correct,
         "total": total,
         "results": results,
     }
-    student = session.students.get(student_name)
-    if student is not None:
-        student.quiz_score = float(score)
-        student.quiz_correct = correct
-        student.quiz_total = total
+    student.quiz_score = float(score)
+    student.quiz_correct = correct
+    student.quiz_total = total
     session_manager.persist_session(session)
 
     # Update teacher dashboard
     await sio.emit("quiz_result", {
-        "student_name": student_name,
+        "student_id": student_id,
+        "student_name": student.name,
         "score": score,
         "correct": correct,
         "total": total,
@@ -677,7 +698,7 @@ async def join_room(sid, data):
     """Student or teacher joins a session room."""
     session_id = data.get("session_id")
     role = data.get("role", "student")
-    student_name = data.get("student_name", "")
+    student_id = data.get("student_id", "")
 
     session = session_manager.get_session(session_id)
     if session is None:
@@ -694,12 +715,12 @@ async def join_room(sid, data):
         await sio.emit("dashboard_update", session.to_dict(include_code=True), to=sid)
         return
 
-    student = session_manager.authenticate_student(session_id, student_name, data.get("student_token"))
+    student = session_manager.authenticate_student(session_id, student_id, data.get("student_token"))
     if student is None:
         await sio.emit("error", {"message": "Invalid student token"}, to=sid)
         return
 
-    _student_sockets[sid] = (session_id, student.name)
+    _student_sockets[sid] = (session_id, student.student_id)
     student.sid = sid
     await sio.enter_room(sid, session_id)
     print(f"[WS] Student '{student.name}' joined session {session_id}")
@@ -723,15 +744,15 @@ async def join_room(sid, data):
 async def telemetry(sid, data):
     """Receive telemetry event from student."""
     session_id = data.get("session_id")
-    student_name = data.get("student_name")
+    student_id = data.get("student_id")
     event_data = data.get("event", {})
 
     # The socket must have authenticated via join_room, and may only report as itself.
     bound = _student_sockets.get(sid)
-    if bound is None or bound != (session_id, student_name):
+    if bound is None or bound != (session_id, student_id):
         await sio.emit("error", {"message": "Unauthorized telemetry"}, to=sid)
         return
-    student = session_manager.authenticate_student(session_id, student_name, data.get("student_token"))
+    student = session_manager.authenticate_student(session_id, student_id, data.get("student_token"))
     if student is None:
         await sio.emit("error", {"message": "Invalid student token"}, to=sid)
         return
@@ -745,7 +766,7 @@ async def telemetry(sid, data):
         payload=event_data.get("payload", {}),
     )
 
-    actions = process_telemetry(session, student_name, event)
+    actions = process_telemetry(session, student_id, event)
 
     # Push dashboard update to all in the room
     if actions.get("dashboard_update"):
@@ -753,7 +774,7 @@ async def telemetry(sid, data):
 
     # Generate and send hint if needed
     if actions.get("should_hint"):
-        student = session.students.get(student_name)
+        student = session.students.get(student_id)
         if student:
             if not student.sid:
                 student.sid = sid
@@ -774,13 +795,14 @@ async def telemetry(sid, data):
             )
             target_sid = student.sid or sid
             await sio.emit("hint", {
-                "student_name": student_name,
+                "student_id": student_id,
                 "hint": hint_text,
                 "level": student.hint_level,
             }, to=target_sid)
             # Also notify teacher
             await sio.emit("hint_given", {
-                "student_name": student_name,
+                "student_id": student_id,
+                "student_name": student.name,
                 "hint": hint_text,
                 "level": student.hint_level,
             }, room=session_id)

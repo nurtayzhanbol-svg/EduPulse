@@ -25,6 +25,10 @@ class JoinSessionRequest(BaseModel):
     student_name: str
 
 
+class UpdateTaskRequest(BaseModel):
+    task_description: str
+
+
 class EndSessionResponse(BaseModel):
     summary: str
     analytics: dict = Field(default_factory=dict)
@@ -163,6 +167,7 @@ class SessionState:
         self.quiz_difficulty_preference: str = level
         self.created_at: float = datetime.now().timestamp()
         self.active: bool = True
+        # Keyed by the server-generated student_id; the display name is only a label.
         self.students: dict[str, StudentState] = {}
         self.alerts: list[dict] = []  # {"type": ..., "message": ..., "timestamp": ...}
         self.summary: str | None = None
@@ -175,6 +180,13 @@ class SessionState:
         self.quiz: list[dict] = []
         self.quiz_results: dict[str, dict] = {}
 
+    def student_by_name(self, name: str) -> StudentState | None:
+        """Look a student up by display name (names are kept unique within a session)."""
+        for student in self.students.values():
+            if student.name == name:
+                return student
+        return None
+
     def to_dict(self, include_code: bool = False) -> dict:
         return {
             "session_id": self.session_id,
@@ -186,8 +198,8 @@ class SessionState:
             "summary": self.summary,
             "student_count": len(self.students),
             "students": {
-                name: s.to_dict(include_code=include_code)
-                for name, s in self.students.items()
+                student_id: s.to_dict(include_code=include_code)
+                for student_id, s in self.students.items()
             },
             "alerts": self.alerts[-20:],  # last 20
         }
@@ -204,5 +216,5 @@ class SessionState:
             if key == "students":
                 continue
             setattr(session, key, value)
-        session.students = {s.name: s for s in students}
+        session.students = {s.student_id: s for s in students}
         return session

@@ -1270,7 +1270,19 @@
             <input type="hidden" id="createModeInput" value="practical" />
             <input type="hidden" id="createDifficultyInput" value="easy" />
             <p id="createStatus" style="font-size:.82rem;color:var(--text-dim);margin:0 0 8px 0;min-height:20px"></p>
-            <button class="btn btn-navy btn-full" id="createBtn" onclick="startSession()">Launch Session →</button>
+            <button class="btn btn-navy btn-full" id="createBtn" onclick="startSession()">Generate Task →</button>
+        </div>
+
+        <!-- TASK REVIEW -->
+        <div id="reviewPanel" style="display:none">
+            <div class="setup-heading">Review the Generated Task</div>
+            <div class="setup-sub">Students cannot see this yet. Edit anything that is wrong or unclear, then launch
+                the session.</div>
+            <label class="form-label" for="taskDraft">Task description</label>
+            <textarea class="form-input" id="taskDraft" rows="14"
+                style="min-height:280px;font-family:'JetBrains Mono',monospace;font-size:.85rem;line-height:1.5"></textarea>
+            <p id="reviewStatus" style="font-size:.82rem;color:var(--text-dim);margin:8px 0;min-height:20px" aria-live="polite"></p>
+            <button class="btn btn-navy btn-full" id="launchBtn" onclick="launchReviewedTask()">Launch Session →</button>
         </div>
 
         <!-- DASHBOARD -->
@@ -1660,8 +1672,8 @@
                 const data = await res.json();
                 sessionId = data.session_id;
                 rememberTeacherSession(sessionId, data.teacher_token);
-                showDashboard(data);
-                initSocket(sessionId);
+                pendingSession = data;
+                showTaskReview(data);
             } catch (e) {
                 status.textContent = e.message === 'Failed to fetch'
                     ? 'Could not reach the server. Check the backend is running.'
@@ -1669,6 +1681,48 @@
                 status.style.color = 'var(--red)';
                 status.setAttribute('role', 'alert');
                 setCreateBusy(false);
+            }
+        }
+
+        // ── Task Review ───────────────────────────────────────────────
+        let pendingSession = null;
+
+        function showTaskReview(data) {
+            document.getElementById('setupPanel').style.display = 'none';
+            document.getElementById('reviewPanel').style.display = 'block';
+            document.getElementById('taskDraft').value = data.task_description || '';
+            document.getElementById('reviewStatus').textContent = '';
+        }
+
+        async function launchReviewedTask() {
+            const status = document.getElementById('reviewStatus');
+            const btn = document.getElementById('launchBtn');
+            const description = document.getElementById('taskDraft').value.trim();
+            if (!description) {
+                status.textContent = '⚠️ The task cannot be empty.';
+                status.style.color = 'var(--red)';
+                return;
+            }
+            btn.disabled = true;
+            status.textContent = 'Saving task…';
+            status.style.color = 'var(--text-dim)';
+            try {
+                if (description !== (pendingSession && pendingSession.task_description)) {
+                    const res = await fetch(`${API}/api/sessions/${sessionId}/task`, {
+                        method: 'PATCH',
+                        headers: authHeaders({ 'Content-Type': 'application/json' }),
+                        body: JSON.stringify({ task_description: description }),
+                    });
+                    if (!res.ok) throw new Error(await parseApiError(res));
+                }
+                document.getElementById('reviewPanel').style.display = 'none';
+                showDashboard({ ...(pendingSession || {}), task_description: description });
+                initSocket(sessionId);
+            } catch (e) {
+                status.textContent = '❌ ' + e.message;
+                status.style.color = 'var(--red)';
+            } finally {
+                btn.disabled = false;
             }
         }
 
@@ -1699,13 +1753,13 @@
         function applyDashboard(data) {
             if (!data || !data.students) return;
             students = {};
-            for (const [name, s] of Object.entries(data.students)) {
-                students[name] = { ...s, name };
+            for (const [id, s] of Object.entries(data.students)) {
+                students[id] = { ...s, student_id: id };
             }
             recalcStats();
             updateMetrics();
             renderGrid();
-            if (openStudentName) openStudentModal(openStudentName);
+            if (openStudentId) openStudentModal(openStudentId);
         }
 
         // ── Socket.IO ─────────────────────────────────────────────────
@@ -1740,7 +1794,7 @@
             socket.on('hint_given', (data) => {
                 classStats.hints++;
                 updateMetrics();
-                pushFeed('info', `AI sent <strong>Level ${(data.level || 0) + 1} hint</strong> to <strong>${data.student_name || '?'}</strong>.`);
+                pushFeed('info', `AI sent <strong>Level ${data.level || 1} hint</strong> to <strong>${data.student_name || '?'}</strong>.`);
             });
 
             // Quiz results
@@ -1860,7 +1914,7 @@
             const prog = Math.round(s.progress || 0);
             const pasteCount = s.paste_events_count || 0;
 
-            return `<div class="student-card ${cardCls}" role="button" tabindex="0" aria-label="Open details for ${s.name.replace(/"/g, '&quot;')}" onclick="openStudentModal('${s.name.replace(/'/g, "\\'")}')" style="cursor: pointer; position: relative;">
+            return `<div class="student-card ${cardCls}" role="button" tabindex="0" aria-label="Open details for ${s.name.replace(/"/g, '&quot;')}" onclick="openStudentModal('${s.student_id}')" style="cursor: pointer; position: relative;">
         <div class="s-head">
           <div class="s-info">
             <div class="avatar" style="background:${bg};color:${clr}">${initials}</div>
@@ -2053,10 +2107,10 @@
         }
 
         // ── Student Detail Modal ─────────────────────────────────────────
-        let openStudentName = null;
+        let openStudentId = null;
 
-        function openStudentModal(name) {
-            const s = students[name];
+        function openStudentModal(studentId) {
+            const s = students[studentId];
             if (!s) return;
             const initials = s.name.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase();
             document.getElementById('smAvatar').textContent = initials;
@@ -2094,12 +2148,12 @@
             const codeEl = document.getElementById('smCode');
             codeEl.textContent = s.current_code || s.current_code_preview || '// No code written yet';
 
-            openStudentName = name;
+            openStudentId = studentId;
             document.getElementById('studentModal').classList.add('show');
         }
 
         function closeStudentModal() {
-            openStudentName = null;
+            openStudentId = null;
             document.getElementById('studentModal').classList.remove('show');
         }
 
