@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 import math
+from contextlib import asynccontextmanager
 import os
 import re
 from pathlib import Path
@@ -11,7 +12,7 @@ from datetime import datetime
 import socketio
 import uvicorn
 from fastapi import FastAPI, HTTPException, Request, UploadFile, File, Form
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 
 from models import (
     CreateSessionRequest, CreateSessionResponse,
@@ -19,17 +20,24 @@ from models import (
 )
 import session_manager
 from auth import bearer_token, require_student, require_teacher, token_matches
-from telemetry import process_telemetry
+from telemetry import compute_understanding_score, is_duplicate_confusion_spike, process_telemetry
 from ai_engine import (
     generate_hint,
     generate_quiz,
     analyze_pdf_content,
     generate_task_description_from_pdf,
 )
-from pdf_engine import extract_text_from_pdf
+from pdf_engine import extract_text_from_pdf, max_upload_bytes, save_upload_to_tempfile
 
 # ── App setup ──────────────────────────────────────────────────────
-app = FastAPI(title="EduPulse", version="1.0.0")
+
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    session_manager.cleanup_expired_sessions()
+    yield
+
+
+app = FastAPI(title="EduPulse", version="1.0.0", lifespan=lifespan)
 
 # Socket.IO server (ASGI mode). Browser origins allowed to open a socket are
 # read from ALLOWED_ORIGINS (comma-separated); same-origin pages are always fine.
@@ -61,6 +69,43 @@ async def broadcast_dashboard(session) -> None:
 
 # Serve frontend static files
 FRONTEND_DIR = Path(__file__).resolve().parent.parent / "frontend"
+
+# Multipart framing (boundaries + form fields) on top of the PDF itself.
+_MULTIPART_OVERHEAD_BYTES = 64 * 1024
+
+
+@app.middleware("http")
+async def reject_oversized_uploads(request: Request, call_next):
+    """Reject an oversized upload from its Content-Length before the body is read at all."""
+    if request.method == "POST" and (
+        request.url.path.endswith("/upload-pdf") or request.url.path.endswith("/create-from-pdf")
+    ):
+        declared = request.headers.get("content-length")
+        if declared and declared.isdigit():
+            limit = max_upload_bytes()
+            if int(declared) > limit + _MULTIPART_OVERHEAD_BYTES:
+                return JSONResponse(
+                    status_code=413,
+                    content={"detail": f"PDF is too large. Maximum upload size is {limit // (1024 * 1024)} MB."},
+                )
+    return await call_next(request)
+
+
+async def _extract_uploaded_pdf(file: UploadFile) -> dict:
+    """Stream the upload to disk (enforcing the size cap) and extract its text."""
+    if not (file.filename or "").lower().endswith(".pdf"):
+        raise HTTPException(400, "Only PDF files are supported")
+    tmp_path = await save_upload_to_tempfile(file)
+    try:
+        result = extract_text_from_pdf(tmp_path)
+    finally:
+        os.unlink(tmp_path)
+    if not result["text"].strip() or result["word_count"] < 20:
+        raise HTTPException(
+            400,
+            "Could not extract enough text from this PDF. Please upload a text-based PDF (not scanned images only).",
+        )
+    return result
 
 
 def _build_session_analytics(session) -> dict:
@@ -96,9 +141,8 @@ def _build_session_analytics(session) -> dict:
         1 for s in students
         if s.hints_given >= 1 or s.frustration_score >= 0.5
     )
-    # End-of-session understanding is based on hints taken (teacher request).
-    hint_based_scores = [max(0.0, 100.0 - (min(4, s.hints_given) * 25.0)) for s in students]
-    avg_score = sum(hint_based_scores) / total_students
+    # Same formula as the live dashboard (telemetry.compute_understanding_score).
+    avg_score = sum(compute_understanding_score(s) for s in students) / total_students
     avg_frustration = sum(s.frustration_score for s in students) / total_students
     avg_idle = sum(s.idle_seconds for s in students) / total_students
     avg_time_in_session = sum(max(0.0, s.last_activity - s.joined_at) for s in students) / total_students
@@ -120,7 +164,7 @@ def _build_session_analytics(session) -> dict:
         {"label": "High Struggle (>=2 hints)", "value": float(high_struggle_students), "max": float(total_students), "unit": f"/{total_students}"},
         {"label": "Critical (>=3 hints)", "value": float(critical_students), "max": float(total_students), "unit": f"/{total_students}"},
         {"label": "Confused Students", "value": float(confused_students), "max": float(total_students), "unit": f"/{total_students}"},
-        {"label": "Avg Understanding (Hints-Based)", "value": round(avg_score, 1), "max": 100.0, "unit": "%"},
+        {"label": "Avg Understanding", "value": round(avg_score, 1), "max": 100.0, "unit": "%"},
         {"label": "Avg Frustration", "value": round(avg_frustration, 2), "max": 1.0, "unit": ""},
         {"label": "Hints per Student/Task", "value": float(hints_per_student_per_task), "max": max(3.0, hints_per_student_per_task + 1.0), "unit": ""},
         {"label": "Avg Idle", "value": round(avg_idle, 1), "max": max(120.0, avg_idle + 30.0), "unit": "s"},
@@ -239,6 +283,7 @@ def _build_report_payload(session) -> dict:
             "hints": int(s.hints_given),
             "status": s.status,
             "idle_seconds": round(float(s.idle_seconds), 1),
+            "understanding_score": round(compute_understanding_score(s), 1),
         }
         for s in sorted(students, key=lambda x: (x.hints_given, x.name), reverse=True)
     ]
@@ -292,9 +337,6 @@ async def create_session_from_pdf(
     mode: str = Form("practical"),
     quiz_difficulty: str = Form("medium"),
 ):
-    if not file.filename.lower().endswith(".pdf"):
-        raise HTTPException(400, "Only PDF files are supported")
-
     normalized_level = (task_level or "medium").lower()
     if normalized_level not in {"easy", "medium", "hard"}:
         normalized_level = "medium"
@@ -305,13 +347,7 @@ async def create_session_from_pdf(
     if normalized_quiz_difficulty not in {"easy", "medium", "hard"}:
         normalized_quiz_difficulty = normalized_level
 
-    pdf_bytes = await file.read()
-    result = extract_text_from_pdf(pdf_bytes)
-    if not result["text"].strip() or result["word_count"] < 20:
-        raise HTTPException(
-            400,
-            "Could not extract enough text from this PDF. Please upload a text-based PDF (not scanned images only).",
-        )
+    result = await _extract_uploaded_pdf(file)
 
     generated_task_description = await generate_task_description_from_pdf(
         pdf_text=result["text"],
@@ -325,6 +361,7 @@ async def create_session_from_pdf(
     session.pdf_text = result["text"]
     session.pdf_filename = file.filename
     session.pdf_analysis = await analyze_pdf_content(result["text"], generated_task_description)
+    session_manager.persist_session(session)
 
     return {
         "session_id": session.session_id,
@@ -358,7 +395,12 @@ async def join_session(session_id: str, req: JoinSessionRequest, request: Reques
         raise HTTPException(404, "Session not found or inactive")
     if token is None:
         raise HTTPException(409, "That name is already taken in this session. Pick another name.")
-    return {"status": "joined", "student_name": student.name, "student_token": token}
+    return {
+        "status": "joined",
+        "student_name": student.name,
+        "student_id": student.student_id,
+        "student_token": token,
+    }
 
 
 @app.post("/api/sessions/{session_id}/end", response_model=EndSessionResponse)
@@ -372,7 +414,7 @@ async def end_session(session_id: str, request: Request):
     summary = "Session ended. Review class metrics and chart for collective performance insights."
     session.summary = summary
     session.analytics = analytics
-    session.ended_at = datetime.now().timestamp()
+    session_manager.persist_session(session)
     # Broadcast session ended
     await sio.emit("session_ended", {"summary": summary, "analytics": analytics}, room=session_id)
     return EndSessionResponse(summary=summary, analytics=analytics)
@@ -386,6 +428,8 @@ async def session_report(session_id: str, request: Request):
     require_teacher(request, session)
     if not getattr(session, "analytics", None):
         session.analytics = _build_session_analytics(session)
+        if not session.active:
+            session_manager.persist_session(session)
     return _build_report_payload(session)
 
 
@@ -410,16 +454,7 @@ async def upload_pdf(session_id: str, request: Request, file: UploadFile = File(
         raise HTTPException(404, "Session not found")
     require_teacher(request, session)
 
-    if not file.filename.lower().endswith(".pdf"):
-        raise HTTPException(400, "Only PDF files are supported")
-
-    pdf_bytes = await file.read()
-    result = extract_text_from_pdf(pdf_bytes)
-    if not result["text"].strip() or result["word_count"] < 20:
-        raise HTTPException(
-            400,
-            "Could not extract enough text from this PDF. Please upload a text-based PDF (not scanned images only).",
-        )
+    result = await _extract_uploaded_pdf(file)
 
     # Store extracted text in session
     session.pdf_text = result["text"]
@@ -428,6 +463,7 @@ async def upload_pdf(session_id: str, request: Request, file: UploadFile = File(
     # Generate AI analysis
     analysis = await analyze_pdf_content(result["text"], session.task_description)
     session.pdf_analysis = analysis
+    session_manager.persist_session(session)
 
     return {
         "filename": file.filename,
@@ -484,6 +520,7 @@ async def api_generate_quiz(
     # Store quiz in session
     session.quiz = questions
     session.quiz_results = {}
+    session_manager.persist_session(session)
 
     # Broadcast quiz to all students via WebSocket
     await sio.emit("quiz_available", {
@@ -542,6 +579,7 @@ async def submit_quiz(session_id: str, submission: dict, request: Request):
         "total": total,
         "results": results,
     }
+    session_manager.persist_session(session)
 
     # Update teacher dashboard
     await sio.emit("quiz_result", {
@@ -699,23 +737,21 @@ async def telemetry(sid, data):
                 "hint": hint_text,
                 "level": student.hint_level,
             }, room=session_id)
+            session_manager.persist_session(session)
 
     # Plagiarism alert
     if actions.get("plagiarism_alert"):
         alert = actions["plagiarism_alert"]
         alert["type"] = "plagiarism"
+        alert.setdefault("timestamp", datetime.now().timestamp())
         session.alerts.append(alert)
         await sio.emit("alert", alert, room=session_id)
 
     # Confusion spike alert
     if actions.get("confusion_spike"):
         spike = actions["confusion_spike"]
-        # Avoid duplicate alerts within 30 seconds
-        recent_spikes = [
-            a for a in session.alerts
-            if a.get("type") == "confusion_spike"
-        ]
-        if not recent_spikes or len(session.alerts) == 0:
+        # Avoid duplicate alerts within CONFUSION_SPIKE_DEDUP_SECONDS of the last one.
+        if not is_duplicate_confusion_spike(session, now=spike["timestamp"]):
             session.alerts.append(spike)
             await sio.emit("alert", spike, room=session_id)
 

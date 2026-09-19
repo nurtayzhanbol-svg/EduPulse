@@ -1895,7 +1895,7 @@
             const totalHints = Number(analytics.total_hints || 0);
             const critical = Number(analytics.critical_students || 0);
             document.getElementById('reportGrid').innerHTML = `
-        <div class="report-stat"><div class="report-val" style="color:var(--teal)">${avgUnderstanding}%</div><div class="report-lbl">Hint-Based Understanding</div></div>
+        <div class="report-stat"><div class="report-val" style="color:var(--teal)">${avgUnderstanding}%</div><div class="report-lbl">Understanding</div></div>
         <div class="report-stat"><div class="report-val">${totalStudents}</div><div class="report-lbl">Students</div></div>
         <div class="report-stat"><div class="report-val" style="color:var(--teal)">${totalHints}</div><div class="report-lbl">AI Hints Sent</div></div>
         <div class="report-stat"><div class="report-val" style="color:var(--red)">${critical}</div><div class="report-lbl">Critical Students</div></div>`;

@@ -4,7 +4,7 @@ from __future__ import annotations
 from pydantic import BaseModel, Field
 from datetime import datetime
 
-from auth import new_session_id
+from auth import new_session_id, new_student_id
 
 
 # ── Request / Response Models ──────────────────────────────────────
@@ -51,7 +51,11 @@ class TelemetryEvent(BaseModel):
 class StudentState:
     """Mutable in-memory state for a connected student."""
 
-    def __init__(self, name: str, sid: str | None = None):
+    # Attributes that are transient (per-process) and never persisted.
+    TRANSIENT_FIELDS = ("sid",)
+
+    def __init__(self, name: str, sid: str | None = None, student_id: str | None = None):
+        self.student_id: str = student_id or new_student_id()  # stable identity; name is a display label
         self.name = name
         self.sid = sid  # Socket.IO session id
         self.token_hash: str = ""  # sha256 of the student's bearer token
@@ -79,6 +83,7 @@ class StudentState:
             compact = " ".join(self.current_code.strip().split())
             code_preview = compact[:140]
         payload = {
+            "student_id": self.student_id,
             "name": self.name,
             "status": self.status,
             "understanding_score": round(self.understanding_score, 1),
@@ -98,6 +103,19 @@ class StudentState:
         if include_code:
             payload["current_code"] = self.current_code
         return payload
+
+    def to_record(self) -> dict:
+        """Full persistable state (everything except transient fields)."""
+        return {k: v for k, v in vars(self).items() if k not in self.TRANSIENT_FIELDS}
+
+    @classmethod
+    def from_record(cls, record: dict) -> "StudentState":
+        student = cls(name=record.get("name", ""), student_id=record.get("student_id"))
+        for key, value in record.items():
+            if key in cls.TRANSIENT_FIELDS:
+                continue
+            setattr(student, key, value)
+        return student
 
 
 # ── Session State ──────────────────────────────────────────────────
@@ -153,3 +171,18 @@ class SessionState:
             },
             "alerts": self.alerts[-20:],  # last 20
         }
+
+    def to_record(self) -> dict:
+        """Persistable session state, excluding students (stored separately)."""
+        return {k: v for k, v in vars(self).items() if k != "students"}
+
+    @classmethod
+    def from_record(cls, record: dict, students: list[StudentState]) -> "SessionState":
+        session = cls(task_description=record.get("task_description", ""),
+                      task_level=record.get("task_level", "medium"))
+        for key, value in record.items():
+            if key == "students":
+                continue
+            setattr(session, key, value)
+        session.students = {s.name: s for s in students}
+        return session

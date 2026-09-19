@@ -9,6 +9,7 @@ import pytest_asyncio
 
 import ai_engine
 import session_manager
+import telemetry
 from main import app
 
 pytestmark = pytest.mark.asyncio
@@ -194,9 +195,31 @@ async def test_report_reflects_student_hints_and_status(client):
     r = await client.get(f"/api/sessions/{sid}/report", headers=th(sid))
     report = r.json()
     assert report["counts"] == {"mastered": 0, "partial": 1, "struggling": 0, "incomplete": 0}
-    assert report["students"][0] == {"name": "Zed", "hints": 3, "status": "red", "idle_seconds": 0.0}
+    assert report["students"][0] == {
+        "name": "Zed", "hints": 3, "status": "red", "idle_seconds": 0.0, "understanding_score": 46.0,
+    }
     assert report["analytics"]["critical_students"] == 1
-    assert report["analytics"]["avg_understanding_score"] == 25.0
+    # Same formula as the live dashboard: 100 - 3 * 18.
+    assert report["analytics"]["avg_understanding_score"] == 46.0
+    assert session.students["Zed"].to_dict()["understanding_score"] == 100.0  # not yet recomputed live
+    telemetry._update_understanding_score(session.students["Zed"])
+    assert session.students["Zed"].to_dict()["understanding_score"] == 46.0
+
+
+async def test_live_and_report_understanding_scores_agree(client):
+    sid = await create(client)
+    await client.post(f"/api/sessions/{sid}/join", json={"student_name": "Zed"})
+    session = session_manager.get_session(sid)
+    zed = session.students["Zed"]
+    zed.hints_given = 2
+    zed.total_keystrokes = 40
+    zed.idle_seconds = 150
+    zed.frustration_score = 0.5
+    telemetry.process_telemetry(session, "Zed", telemetry.TelemetryEvent(event_type="paste", payload={"length": 500}))
+    live = (await client.get(f"/api/sessions/{sid}")).json()["students"]["Zed"]["understanding_score"]
+    report = (await client.get(f"/api/sessions/{sid}/report", headers=th(sid))).json()
+    assert live == report["analytics"]["avg_understanding_score"] == report["students"][0]["understanding_score"]
+    assert live == pytest.approx(100 - 36 - 12.5 - 0 - 20)  # large paste resets frustration
 
 
 async def test_list_sessions_returns_only_the_callers_session(client):

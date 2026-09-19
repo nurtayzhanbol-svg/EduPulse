@@ -14,6 +14,10 @@ def new_session_id() -> str:
     return secrets.token_urlsafe(12)
 
 
+def new_student_id() -> str:
+    return secrets.token_urlsafe(9)
+
+
 def new_token() -> str:
     return secrets.token_urlsafe(32)
 

@@ -14,3 +14,10 @@ env/
 .vscode/
 .idea/
 .DS_Store
+
+# Local state
+edupulse.db
+edupulse.db-*
+*.db
+*.db-wal
+*.db-shm
