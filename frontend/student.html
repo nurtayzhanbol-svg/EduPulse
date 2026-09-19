@@ -1153,6 +1153,7 @@
         let joinInFlight = false;
         let hintInFlight = false;
         let hintTimeout = null;
+        let sessionOver = false;
 
         // Telemetry state
         let keystrokeCount = 0, pasteCount = 0, idleSeconds = 0, hintLevel = 0;
@@ -1453,11 +1454,13 @@
 
             // Session ended
             socket.on('session_ended', () => {
+                sessionOver = true;
                 document.getElementById('codeArea').disabled = true;
                 const ov = document.getElementById('successOverlay');
                 document.getElementById('successTitle').textContent = 'Session Ended';
                 document.getElementById('successSub').textContent = 'Your teacher has ended this session. Thank you for participating!';
                 ov.classList.add('show');
+                socket.disconnect();
             });
 
             // Errors
@@ -1532,7 +1535,7 @@
         // Only the event-specific payload is sent. Editor code travels only in `help`
         // (as current_code) and in the debounced `code_update` (as `code`).
         function sendTelemetry(eventType, payload = {}) {
-            if (!socket || !sessionId) return;
+            if (!socket || !sessionId || sessionOver) return;
             socket.emit('telemetry', {
                 session_id: sessionId,
                 student_id: studentId,
