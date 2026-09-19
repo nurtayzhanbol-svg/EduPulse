@@ -33,8 +33,9 @@ class UpdateTaskRequest(BaseModel):
 
 
 class LaunchSessionRequest(BaseModel):
-    """Optional final edit of the task, saved atomically with the launch."""
+    """Optional final edit of the task (and its steps), saved atomically with the launch."""
     task_description: str | None = None
+    task_steps: list[str] | None = None
 
 
 class NudgeRequest(BaseModel):
@@ -285,6 +286,7 @@ class SessionState:
                 for student_id, s in self.students.items()
             },
             "alerts": self.alerts[-20:],  # last 20
+            "confusion_episode_active": self.confusion_episode_active,
         }
 
     def to_public_dict(self) -> dict:

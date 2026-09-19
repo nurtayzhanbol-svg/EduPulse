@@ -978,6 +978,43 @@ Material:
         return description, task_steps_from_description(description)
 
 
+async def regenerate_task_steps(description: str, session_id: str | None = None) -> list[str]:
+    """Steps for a task the teacher edited by hand, so steps never contradict the text.
+
+    Uses the model when one is configured, otherwise (or on any failure / unusable
+    output) the deterministic ``task_steps_from_description`` fallback.
+    """
+    client = _get_client(session_id)
+    if client is None:
+        return task_steps_from_description(description)
+    prompt = f"""Here is a lab task a teacher wrote for students:
+
+{description[:2500]}
+
+Write 2 or 3 short numbered steps a student completes in order to finish exactly this task:
+Step 1: ...
+Step 2: ...
+Step 3: ...
+Each step must be a concrete, checkable action (not "think about" or "understand"),
+under 120 characters, plain text only, no markdown or extra notes."""
+    try:
+        response = await _chat(
+            client,
+            "You break classroom tasks into concrete, checkable steps.",
+            prompt,
+            max_tokens=200,
+            temperature=0.3,
+            operation="task-steps",
+            session_id=session_id,
+        )
+        steps = parse_task_steps((response.choices[0].message.content or "").strip())
+        if len(steps) >= MIN_TASK_STEPS:
+            return steps
+    except Exception as e:
+        _handle_ai_exception(e, "Task step regeneration")
+    return task_steps_from_description(description)
+
+
 def parse_task_steps(raw: str) -> list[str]:
     """Pull ``Step N: ...`` lines out of model output, in order, capped at MAX_TASK_STEPS."""
     steps: list[str] = []

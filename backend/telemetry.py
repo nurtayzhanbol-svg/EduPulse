@@ -167,9 +167,15 @@ def process_telemetry(session: SessionState, student_id: str, event: TelemetryEv
     _update_status(student, session, now)
 
     # ── Check class-wide confusion ─────────────────────────────────
-    spike = track_confusion_episode(session, now)
+    was_active = session.confusion_episode_active
+    current = detect_confusion_spike(session, now)
+    spike = track_confusion_episode(session, now, current)
     if spike:
         actions["confusion_spike"] = spike
+    elif was_active and not session.confusion_episode_active:
+        actions["confusion_resolved"] = confusion_resolved_payload(session, now)
+    elif session.confusion_episode_active and current is not None:
+        actions["confusion_update"] = current
 
     return actions
 
@@ -260,14 +266,32 @@ def detect_confusion_spike(session: SessionState, now: float | None = None) -> d
     return None
 
 
-def track_confusion_episode(session: SessionState, now: float | None = None) -> dict | None:
+def confusion_resolved_payload(session: SessionState, now: float | None = None) -> dict:
+    """What the teacher sees once a confusion episode is over: who is still stuck (below threshold)."""
+    now = datetime.now().timestamp() if now is None else now
+    stuck = [s for s in session.students.values()
+             if s.status in ("yellow", "red") and now - s.last_activity < LEFT_ROOM_AFTER_SECONDS]
+    return {
+        "type": "confusion_spike",
+        "active": False,
+        "struggling_count": len(stuck),
+        "total_count": len(session.students),
+        "students": [s.name for s in stuck],
+        "timestamp": now,
+    }
+
+
+def track_confusion_episode(session: SessionState, now: float | None = None,
+                            spike: dict | None = None) -> dict | None:
     """Return a spike alert only when a confusion episode *starts*.
 
     While the same episode is ongoing nothing is returned; once fewer students are
     stuck the episode ends, and a new one may alert after CONFUSION_SPIKE_QUIET_SECONDS.
+    ``spike`` may carry a precomputed ``detect_confusion_spike`` result for this instant.
     """
     now = datetime.now().timestamp() if now is None else now
-    spike = detect_confusion_spike(session, now)
+    if spike is None:
+        spike = detect_confusion_spike(session, now)
     if spike is None:
         if session.confusion_episode_active:
             session.confusion_episode_active = False

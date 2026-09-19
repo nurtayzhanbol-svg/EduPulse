@@ -29,6 +29,7 @@ from ai_engine import (
     generate_quiz,
     analyze_pdf_content,
     generate_task_from_pdf,
+    regenerate_task_steps,
     MAX_TASK_STEPS,
 )
 from pdf_engine import extract_text_from_pdf, max_upload_bytes, save_upload_to_tempfile
@@ -291,6 +292,35 @@ def _build_session_summary(session, analytics: dict, missed: list[dict]) -> str:
     return "\n".join(lines)
 
 
+FOLLOW_UP_QUIZ_THRESHOLD_PCT = 50
+FOLLOW_UP_DEFINITION = (
+    f"quiz below {FOLLOW_UP_QUIZ_THRESHOLD_PCT}%, asked for help, or not green at session end"
+)
+
+
+def _build_follow_up(students) -> dict:
+    """Who needs follow-up, by evidence first (quiz, explicit help) and status last."""
+    rows = []
+    for s in students:
+        reasons = []
+        if s.quiz_score is not None and s.quiz_score < FOLLOW_UP_QUIZ_THRESHOLD_PCT:
+            reasons.append(f"quiz {round(float(s.quiz_score))}% ({s.quiz_correct}/{s.quiz_total})")
+        if s.help_requests:
+            n = len(s.help_requests)
+            reasons.append(f"asked for help {n} time{'s' if n != 1 else ''}")
+        if s.status and s.status != "green":
+            reasons.append(f"{s.status} at session end")
+        if reasons:
+            rows.append({"student_id": s.student_id, "name": s.name, "reasons": reasons})
+    rows.sort(key=lambda r: r["name"])
+    return {
+        "count": len(rows),
+        "quiz_threshold_pct": FOLLOW_UP_QUIZ_THRESHOLD_PCT,
+        "definition": FOLLOW_UP_DEFINITION,
+        "students": rows,
+    }
+
+
 def _build_report_payload(session) -> dict:
     quiz_results = _normalize_quiz_results(session)
     analytics = getattr(session, "analytics", None) or _build_session_analytics(session)
@@ -356,6 +386,7 @@ def _build_report_payload(session) -> dict:
         "session_id": session.session_id,
         "task_description": session.task_description,
         "task_steps": list(getattr(session, "task_steps", None) or []),
+        "follow_up": _build_follow_up(students),
         "task_level": session.task_level,
         "created_at": start_ts,
         "ended_at": end_ts,
@@ -488,11 +519,16 @@ async def join_session(session_id: str, req: JoinSessionRequest, request: Reques
     if student.consented_at is None:
         student.consented_at = datetime.now().timestamp()
         session_manager.persist_session(session_manager.get_session(session_id))
+    session = session_manager.get_session(session_id)
     return {
         "status": "joined",
         "student_name": student.name,
         "student_id": student.student_id,
         "student_token": token,
+        # Saved work so a reload restores the editor and checklist instead of resetting them.
+        "current_code": student.current_code,
+        "completed_steps": list(student.completed_steps),
+        "task_steps": list(session.task_steps if session else []),
     }
 
 
@@ -553,15 +589,24 @@ async def launch_session(session_id: str, req: LaunchSessionRequest, request: Re
     require_teacher(request, session)
     if not session.active:
         raise HTTPException(409, "Session has already ended")
+    if req.task_steps is not None:
+        steps = [s.strip() for s in req.task_steps if isinstance(s, str) and s.strip()][:MAX_TASK_STEPS]
+        if not steps:
+            raise HTTPException(400, "Task steps cannot be empty")
+        session.task_steps = steps
     if req.task_description is not None:
         description = req.task_description.strip()
         if not description:
             raise HTTPException(400, "Task description cannot be empty")
+        if description != session.task_description and req.task_steps is None:
+            # Edited task text: steps must describe the task students actually get.
+            session.task_steps = await regenerate_task_steps(description, session.session_id)
         session.task_description = description
     session.launched = True
     session_manager.persist_session(session)
     await broadcast_dashboard(session)
     return {"launched": True, "task_description": session.task_description,
+            "task_steps": list(session.task_steps),
             "join_url": f"/student.html?session={session.session_id}"}
 
 
@@ -1031,6 +1076,12 @@ async def telemetry(sid, data):
         spike = actions["confusion_spike"]
         session.alerts.append(spike)
         await sio.emit("alert", spike, room=teacher_room(session_id))
+    # While the episode lasts the teacher sees the live stuck count; when it ends the alert clears.
+    elif actions.get("confusion_update"):
+        await sio.emit("confusion_update", dict(actions["confusion_update"], active=True),
+                       room=teacher_room(session_id))
+    elif actions.get("confusion_resolved"):
+        await sio.emit("confusion_update", actions["confusion_resolved"], room=teacher_room(session_id))
 
 
 # ── Entry point ────────────────────────────────────────────────────

@@ -103,7 +103,12 @@ body{font-family:'Source Sans 3',sans-serif;background:var(--cream);color:var(--
     <div class="kpi"><div class="kpi-label">AI Hints</div><div class="kpi-val" id="kpiHints">0</div><div class="kpi-sub">total delivered</div></div>
     <div class="kpi"><div class="kpi-label">Help Requests</div><div class="kpi-val" id="kpiHelp">0</div><div class="kpi-sub">students asked explicitly</div></div>
     <div class="kpi"><div class="kpi-label">Teacher Nudges</div><div class="kpi-val" id="kpiNudges">0</div><div class="kpi-sub">teacher interventions</div></div>
-    <div class="kpi"><div class="kpi-label">Need Follow-up</div><div class="kpi-val" id="kpiCritical">0</div><div class="kpi-sub">not green at session end</div></div>
+    <div class="kpi"><div class="kpi-label">Need Follow-up</div><div class="kpi-val" id="kpiCritical">0</div><div class="kpi-sub" id="kpiCriticalSub">quiz below 50%, asked for help, or not green at session end</div></div>
+  </div>
+
+  <div class="card" id="followUpCard" style="margin-bottom:.9rem;display:none">
+    <div class="card-head"><div class="card-title">Need follow-up</div><div style="font-size:.72rem;color:var(--text-dim)" id="followUpDef"></div></div>
+    <div class="card-body" id="followUpBody" style="font-size:.85rem;line-height:1.7"></div>
   </div>
 
   <div class="fb-grid">
@@ -159,8 +164,16 @@ function setKpis(report){
   byId('kpiHints').textContent = a.total_hints ?? 0;
   byId('kpiHelp').textContent = a.help_request_count ?? 0;
   byId('kpiNudges').textContent = a.teacher_intervention_count ?? 0;
-  const students = Array.isArray(report.students) ? report.students : [];
-  byId('kpiCritical').textContent = students.filter((s) => s.status && s.status !== 'green').length;
+  const followUp = report.follow_up || { count: 0, students: [], definition: '' };
+  byId('kpiCritical').textContent = followUp.count ?? 0;
+  if (followUp.definition) byId('kpiCriticalSub').textContent = followUp.definition;
+  const card = byId('followUpCard');
+  const rows = Array.isArray(followUp.students) ? followUp.students : [];
+  byId('followUpDef').textContent = followUp.definition || '';
+  byId('followUpBody').innerHTML = rows.length
+    ? rows.map((r) => `<div><strong>${esc(r.name)}</strong> — ${esc((r.reasons || []).join('; '))}</div>`).join('')
+    : '<div style="color:var(--text-dim)">Nobody needs follow-up by this definition.</div>';
+  card.style.display = '';
 }
 
 function esc(s){ const d = document.createElement('div'); d.textContent = s == null ? '' : String(s); return d.innerHTML; }
