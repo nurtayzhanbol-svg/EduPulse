@@ -10,11 +10,11 @@ import pytest
 
 import main
 import session_manager
-from conftest import make_event
+from conftest import make_event, student_id
 from models import StudentState
 from telemetry import process_telemetry
 from test_api import client, create, th, sh  # noqa: F401 (fixtures)
-from test_socket_auth import sio_spy, setup_session  # noqa: F401 (fixtures)
+from test_socket_auth import sio_spy, setup_session, sid_of  # noqa: F401 (fixtures)
 
 
 
@@ -23,41 +23,41 @@ from test_socket_auth import sio_spy, setup_session  # noqa: F401 (fixtures)
 
 @pytest.mark.parametrize("event_type", ["keystroke", "idle", "paste", "backspace", "mystery"])
 def test_code_is_ignored_on_non_code_events(session, student, event_type):
-    process_telemetry(session, "student0", make_event(event_type, current_code="x = 1", code="y = 2", length=3))
+    process_telemetry(session, student_id(session), make_event(event_type, current_code="x = 1", code="y = 2", length=3))
     assert student.current_code == ""
 
 
 def test_help_accepts_current_code_and_code_update_accepts_code(session, student):
-    process_telemetry(session, "student0", make_event("help", message="stuck", current_code="a = 1"))
+    process_telemetry(session, student_id(session), make_event("help", message="stuck", current_code="a = 1"))
     assert student.current_code == "a = 1"
-    process_telemetry(session, "student0", make_event("help", message="stuck", current_answer="b = 2"))
+    process_telemetry(session, student_id(session), make_event("help", message="stuck", current_answer="b = 2"))
     assert student.current_code == "b = 2"
-    process_telemetry(session, "student0", make_event("code_update", code="c = 3"))
+    process_telemetry(session, student_id(session), make_event("code_update", code="c = 3"))
     assert student.current_code == "c = 3"
 
 
 def test_stored_code_is_capped(session, student):
-    process_telemetry(session, "student0", make_event("code_update", code="x" * 25_000))
+    process_telemetry(session, student_id(session), make_event("code_update", code="x" * 25_000))
     assert len(student.current_code) == StudentState.MAX_CODE_CHARS == 20_000
 
 
 def test_events_ring_buffer_holds_only_type_and_ts(session, student):
     for i in range(600):
-        process_telemetry(session, "student0", make_event("keystroke", count=1, current_code="secret", extra=i))
+        process_telemetry(session, student_id(session), make_event("keystroke", count=1, current_code="secret", extra=i))
     assert len(student.events) == 500
     assert all(set(e) == {"type", "ts"} for e in student.events)
 
 
 def test_paste_stores_length_and_timestamp_only(session, student):
     ev = make_event("paste", length=12, content_preview="import os", preview="import os")
-    process_telemetry(session, "student0", ev)
+    process_telemetry(session, student_id(session), ev)
     assert student.paste_events == [{"length": 12, "timestamp": ev.timestamp}]
 
 
 def test_persisted_student_json_has_no_code_or_preview(session, student):
-    process_telemetry(session, "student0", make_event("paste", length=400, content_preview="stolen code"))
-    process_telemetry(session, "student0", make_event("code_update", code="print('hi')"))
-    process_telemetry(session, "student0", make_event("help", message="?", current_code="print('hi')"))
+    process_telemetry(session, student_id(session), make_event("paste", length=400, content_preview="stolen code"))
+    process_telemetry(session, student_id(session), make_event("code_update", code="print('hi')"))
+    process_telemetry(session, student_id(session), make_event("help", message="?", current_code="print('hi')"))
     student.consented_at = 1234.5
     session_manager.persist_session(session)
 
@@ -88,24 +88,24 @@ async def test_private_events_reach_teacher_room_only(sio_spy):  # noqa: F811
     session, teacher_token, alice_token, bob_token = setup_session()
     sid_ = session.session_id
     await main.join_room("sock-t", {"session_id": sid_, "role": "teacher", "teacher_token": teacher_token})
+    alice_id, bob_id = sid_of(session, "Alice"), sid_of(session, "Bob")
     await main.join_room("sock-a", {"session_id": sid_, "role": "student",
-                                    "student_name": "Alice", "student_token": alice_token})
+                                    "student_id": alice_id, "student_token": alice_token})
     await main.join_room("sock-b", {"session_id": sid_, "role": "student",
-                                    "student_name": "Bob", "student_token": bob_token})
+                                    "student_id": bob_id, "student_token": bob_token})
 
-    alice_id = session.students["Alice"].student_id
     bob_rooms = {r for s, r in rooms if s == "sock-b"}
-    assert bob_rooms == {sid_, main.student_room(sid_, session.students["Bob"].student_id)}
+    assert bob_rooms == {sid_, main.student_room(sid_, bob_id)}
     assert {r for s, r in rooms if s == "sock-t"} == {main.teacher_room(sid_)}
 
     emitted.clear()
     # Alice asks for help (-> hint + hint_given), pastes a large block (-> alert).
     await main.telemetry("sock-a", {
-        "session_id": sid_, "student_name": "Alice", "student_token": alice_token,
+        "session_id": sid_, "student_id": alice_id, "student_token": alice_token,
         "event": {"event_type": "help", "payload": {"message": "stuck", "current_code": "x = 1"}},
     })
     await main.telemetry("sock-a", {
-        "session_id": sid_, "student_name": "Alice", "student_token": alice_token,
+        "session_id": sid_, "student_id": alice_id, "student_token": alice_token,
         "event": {"event_type": "paste", "payload": {"length": 5000}},
     })
 
@@ -123,7 +123,7 @@ async def test_private_events_reach_teacher_room_only(sio_spy):  # noqa: F811
         else:
             pytest.fail(f"unexpected event {event} -> {kw}")
         # Nothing private is ever addressed to the shared session room or to Bob.
-        assert target not in (sid_, "sock-b", main.student_room(sid_, session.students["Bob"].student_id))
+        assert target not in (sid_, "sock-b", main.student_room(sid_, bob_id))
 
 
 @pytest.mark.asyncio
@@ -136,7 +136,7 @@ async def test_quiz_result_goes_to_teacher_room(client, sio_spy):  # noqa: F811
     session.quiz = [{"question": "2+2?", "options": ["3", "4"], "correct": "4", "task_description": ""}]
     session_manager.persist_session(session)
     r = await client.post(f"/api/sessions/{sid_}/submit-quiz",
-                          json={"student_name": "Alice", "answers": {"0": "4"}}, headers=sh(sid_, "Alice"))
+                          json={"student_id": sid_of(session, "Alice"), "answers": {"0": "4"}}, headers=sh(sid_, "Alice"))
     assert r.status_code == 200, r.text
     results = [kw for e, _, kw in emitted if e == "quiz_result"]
     assert results and all(kw.get("room") == main.teacher_room(sid_) for kw in results)
@@ -157,13 +157,13 @@ async def test_join_requires_consent(client):  # noqa: F811
 
     r = await client.post(f"/api/sessions/{sid_}/join", json={"student_name": "Alice", "consent": True})
     assert r.status_code == 200
-    alice = session_manager.get_session(sid_).students["Alice"]
+    alice = session_manager.get_session(sid_).student_by_name("Alice")
     assert isinstance(alice.consented_at, float) and alice.consented_at > 0
     assert "consented_at" in alice.to_record()
 
     # Consent timestamp survives a restart; the public payload never shows it.
     session_manager.reset_cache()
-    assert session_manager.get_session(sid_).students["Alice"].consented_at == alice.consented_at
+    assert session_manager.get_session(sid_).student_by_name("Alice").consented_at == alice.consented_at
     r = await client.get(f"/api/sessions/{sid_}")
     assert "consented_at" not in r.text
 
