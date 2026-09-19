@@ -88,7 +88,7 @@ class StudentState:
     def support_signals(self) -> int:
         """How many times this student needed support: hints delivered + help asked for.
 
-        A count of observed support events, not a learning measure.
+        A count of observed events, not a mastery estimate.
         """
         return self.hints_given + len(self.help_requests)
 

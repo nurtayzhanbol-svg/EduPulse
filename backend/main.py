@@ -155,6 +155,7 @@ def _build_session_analytics(session) -> dict:
         "insights": insights,
     }
 
+
 def _build_report_payload(session) -> dict:
     analytics = getattr(session, "analytics", None) or _build_session_analytics(session)
     students = list(session.students.values())
