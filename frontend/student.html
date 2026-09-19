@@ -1080,7 +1080,7 @@
     </div>
     <!-- PASTE WARNING -->
     <div id="pasteWarning"
-        style="display:none;position:fixed;bottom:6rem;right:1.75rem;background:var(--red-pale);border:1.5px solid rgba(184,50,50,.3);border-radius:10px;padding:.8rem 1rem;font-size:.8rem;color:var(--red);font-weight:600;z-index:201;gap:8px;align-items:center">
+        style="display:none;position:fixed;bottom:6rem;right:1.75rem;background:var(--teal-pale, rgba(26,122,110,.1));border:1.5px solid rgba(26,122,110,.3);border-radius:10px;padding:.8rem 1rem;font-size:.8rem;color:var(--navy, #1a2744);font-weight:600;z-index:201;gap:8px;align-items:center">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3"
             stroke-linecap="round" stroke-linejoin="round">
             <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
@@ -1088,7 +1088,7 @@
         </svg>
         <span></span>
         <button onclick="document.getElementById('pasteWarning').style.display='none'"
-            style="background:none;border:none;cursor:pointer;color:var(--red);font-size:1rem;line-height:1;padding:0 0 0 4px">×</button>
+            style="background:none;border:none;cursor:pointer;color:var(--navy, #1a2744);font-size:1rem;line-height:1;padding:0 0 0 4px">×</button>
     </div>
     <!-- HINT TOAST -->
     <div class="hint-toast" id="hintToast" role="status" aria-live="polite">
@@ -1588,7 +1588,7 @@
             scheduleCodeUpdate();
             if (chars > 120) {
                 const el = document.getElementById('pasteWarning');
-                if (el) { el.style.display = 'flex'; el.querySelector('span').textContent = `Large paste (${chars} chars) detected and reported.`; }
+                if (el) { el.style.display = 'flex'; el.querySelector('span').textContent = `Large paste (${chars} chars). Only the length was shared with your teacher — never the text.`; }
             }
         }
 

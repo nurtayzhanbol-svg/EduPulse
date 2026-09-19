@@ -574,6 +574,15 @@
             border: 1px solid rgba(201, 112, 16, .25)
         }
 
+        .alert-note {
+            background: var(--teal-pale);
+            border: 1px solid rgba(26, 122, 110, .25)
+        }
+
+        .alert-title.navy {
+            color: var(--navy)
+        }
+
         .alert-icon {
             flex-shrink: 0;
             margin-top: 1px;
@@ -793,13 +802,13 @@
             display: flex;
             align-items: center;
             gap: 7px;
-            background: var(--red-pale);
-            border: 1px solid rgba(184, 50, 50, .2);
+            background: var(--teal-pale);
+            border: 1px solid rgba(26, 122, 110, .2);
             border-radius: 7px;
             padding: 7px 11px;
             margin-top: 10px;
             font-size: .76rem;
-            color: var(--red);
+            color: var(--navy);
             font-weight: 600
         }
 
@@ -1329,11 +1338,11 @@
                     </div>
                 </div>
                 <div class="metric-card">
-                    <div class="metric-label">Integrity Flags</div>
-                    <div class="metric-value red" id="mFlags">0</div>
-                    <div class="metric-sub">Paste / similarity events</div>
+                    <div class="metric-label">Paste Events</div>
+                    <div class="metric-value" id="mFlags">0</div>
+                    <div class="metric-sub">Observations only — not a judgement</div>
                     <div class="metric-bar">
-                        <div class="metric-bar-fill" id="mFBar" style="width:0%;background:var(--red)"></div>
+                        <div class="metric-bar-fill" id="mFBar" style="width:0%;background:var(--navy)"></div>
                     </div>
                 </div>
             </div>
@@ -1787,9 +1796,9 @@
 
             // Alerts
             socket.on('alert', (data) => {
-                const type = data.type === 'plagiarism' ? 'flag' : 'warn';
+                const type = data.type === 'large_paste' ? 'note' : 'warn';
                 pushAlert(type, data.student_name || 'System', data.message || '');
-                pushFeed(type, `<strong>${data.student_name || 'System'}</strong>: ${data.message || ''}`);
+                pushFeed(type === 'note' ? 'info' : type, `<strong>${data.student_name || 'System'}</strong>: ${data.message || ''}`);
             });
 
             // Hint given
@@ -1934,7 +1943,7 @@
           <div class="s-met"><div class="s-met-val">${idle}</div><div class="s-met-lbl">Idle</div></div>
           <div class="s-met"><div class="s-met-val">${s.hints_given || 0} / ${s.help_requests_count || 0}</div><div class="s-met-lbl">Hints / Asked</div></div>
         </div>
-        ${pasteCount > 0 ? `<div class="flag-note"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/></svg> ${pasteCount} paste event${pasteCount > 1 ? 's' : ''} detected — please review</div>` : ''}
+        ${pasteCount > 0 ? `<div class="flag-note"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/></svg> ${pasteCount} paste event${pasteCount > 1 ? 's' : ''} — observation only</div>` : ''}
         ${pasteCount === 0 && idleSec > 120 ? `<div class="idle-note"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg> Idle for ${idle} — may need assistance</div>` : ''}
       </div>`;
         }
@@ -1949,12 +1958,12 @@
         function pushAlert(type, name, text) {
             const area = document.getElementById('alertsArea');
             const id = 'a' + Date.now();
-            const cls = type === 'flag' ? 'alert-flag' : 'alert-warn';
-            const icon = type === 'flag'
+            const cls = type === 'flag' ? 'alert-flag' : type === 'note' ? 'alert-note' : 'alert-warn';
+            const icon = type === 'flag' || type === 'note'
                 ? `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/></svg>`
                 : `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16" stroke-width="3"/></svg>`;
-            const tcls = type === 'flag' ? 'red' : 'amber';
-            const title = type === 'flag' ? `Integrity Flag — ${name}` : `Alert — ${name}`;
+            const tcls = type === 'flag' ? 'red' : type === 'note' ? 'navy' : 'amber';
+            const title = type === 'flag' ? `Integrity Flag — ${name}` : type === 'note' ? `Large paste — ${name}` : `Alert — ${name}`;
             area.insertAdjacentHTML('afterbegin', `
         <div class="alert ${cls}" id="${id}">
           <span class="alert-icon">${icon}</span>
@@ -2057,7 +2066,7 @@
             const endBtn = document.getElementById('endBtn');
             endBtn.disabled = true;
             const list = Object.values(students);
-            document.getElementById('reportGrid').innerHTML = `<div class="report-stat"><div class="report-val" style="color:var(--teal);font-size:${classStats.avg === null || classStats.avg === undefined ? '.9rem' : ''}">${classStats.avg === null || classStats.avg === undefined ? 'No evidence yet' : classStats.avg + '%'}</div><div class="report-lbl">Quiz Accuracy</div></div><div class="report-stat"><div class="report-val">${list.length}</div><div class="report-lbl">Students</div></div><div class="report-stat"><div class="report-val" style="color:var(--teal)">${classStats.hints || 0}</div><div class="report-lbl">AI Hints Sent</div></div><div class="report-stat"><div class="report-val" style="color:var(--red)">${classStats.flags || 0}</div><div class="report-lbl">Integrity Flags</div></div>`;
+            document.getElementById('reportGrid').innerHTML = `<div class="report-stat"><div class="report-val" style="color:var(--teal);font-size:${classStats.avg === null || classStats.avg === undefined ? '.9rem' : ''}">${classStats.avg === null || classStats.avg === undefined ? 'No evidence yet' : classStats.avg + '%'}</div><div class="report-lbl">Quiz Accuracy</div></div><div class="report-stat"><div class="report-val">${list.length}</div><div class="report-lbl">Students</div></div><div class="report-stat"><div class="report-val" style="color:var(--teal)">${classStats.hints || 0}</div><div class="report-lbl">AI Hints Sent</div></div><div class="report-stat"><div class="report-val">${classStats.flags || 0}</div><div class="report-lbl">Paste Events</div></div>`;
             const summary = document.getElementById('reportSummary');
             summary.removeAttribute('role');
             summary.innerHTML = '<span class="spinner"></span> Generating AI report…';

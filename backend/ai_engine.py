@@ -514,7 +514,9 @@ Write a professional, actionable report. Include:
 2. Which concepts caused the most confusion
 3. Individual student highlights (both struggling and excelling)
 4. Specific recommendations for the next class
-5. Any plagiarism concerns that need follow-up
+
+Do not speculate about plagiarism or academic integrity: paste counts are neutral observations
+that the teacher interprets themselves, so do not include a section about them.
 
 Use clear sections with headers. Be specific and data-driven."""
 
@@ -578,7 +580,6 @@ def _mock_summary(session: SessionState, student_data: list[dict]) -> str:
     struggling = [s for s in graded if s["quiz_score"] < 50]
     excelling = [s for s in graded if s["quiz_score"] >= 80]
     unsupported = [s for s in student_data if s["support_signals"] >= 3]
-    paste_concerns = [s for s in student_data if s["large_pastes"] > 0]
     accuracy_line = (
         f"{avg_score:.1f}% across {len(graded)}/{total} submissions"
         if avg_score is not None else "no quiz evidence yet"
@@ -611,16 +612,10 @@ def _mock_summary(session: SessionState, student_data: list[dict]) -> str:
         for s in unsupported:
             report += f"- **{s['name']}**: {s['support_signals']} support signals ({s['hints_used']} hints)\n"
 
-    if paste_concerns:
-        report += f"\n### 🚨 Plagiarism Concerns ({len(paste_concerns)} students)\n"
-        for s in paste_concerns:
-            report += f"- **{s['name']}**: {s['large_pastes']} large paste event(s) — requires verbal follow-up\n"
-
     report += f"""
 ## Recommendations
 - {"Run a quiz next session — there is no evidence of what the class understood." if avg_score is None else "Focus next class on reviewing the core concepts — quiz accuracy below 60%." if avg_score < 60 else "Class is progressing well. Consider introducing more advanced challenges."}
 - {"Schedule one-on-one time with struggling students." if struggling else "No individual interventions needed."}
-- {"Address potential academic integrity concerns with flagged students." if paste_concerns else "No plagiarism concerns detected."}
 """
     return report
 

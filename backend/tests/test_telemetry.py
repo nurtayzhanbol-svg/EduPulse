@@ -8,7 +8,6 @@ import telemetry
 from telemetry import (
     IDLE_CRITICAL_SECONDS,
     IDLE_WARNING_SECONDS,
-    PASTE_FLAG_SECONDS,
     PASTE_LENGTH_THRESHOLD,
     PAUSE_HINT_COOLDOWN_SECONDS,
     SUPPORT_RECOVERY_SECONDS,
@@ -282,7 +281,10 @@ def test_critical_idle_threshold_scales_with_hint_level(session, student):
     assert actions["force_hint_level"] == 2
 
 
-# ── paste / plagiarism ────────────────────────────────────────────
+# ── paste / large-paste observation ───────────────────────────────
+# The old tests here encoded the "High plagiarism risk" behaviour (red status,
+# frustration reset). Those were replaced: a large paste is a neutral, teacher-only
+# observation that never changes status or frustration.
 
 
 def test_small_paste_is_recorded_without_alert(session, student):
@@ -290,40 +292,42 @@ def test_small_paste_is_recorded_without_alert(session, student):
         session, student_id(session, "student0"),
         make_event("paste", length=PASTE_LENGTH_THRESHOLD - 1, content_preview="abc"),
     )
+    assert "large_paste_alert" not in actions
     assert "plagiarism_alert" not in actions
     assert student.paste_events[0]["length"] == PASTE_LENGTH_THRESHOLD - 1
     assert set(student.paste_events[0]) == {"length", "timestamp"}
     assert student.status == "green"
 
 
-def test_large_paste_raises_alert_red_status_and_zero_frustration(session, student):
+def test_large_paste_is_a_neutral_observation(session, student):
     start_work(student)
     student.frustration_score = 0.7
     actions = process_telemetry(
         session, student_id(session, "student0"),
         make_event("paste", length=PASTE_LENGTH_THRESHOLD, content_preview="z" * 500),
     )
-    alert = actions["plagiarism_alert"]
+    alert = actions["large_paste_alert"]
+    assert alert["student_id"] == student.student_id
     assert alert["student_name"] == "student0"
     assert alert["paste_length"] == PASTE_LENGTH_THRESHOLD
     assert "student0" in alert["message"]
-    assert student.frustration_score == 0
-    assert student.status == "red"
+    for word in ("plagiarism", "cheat", "risk", "⚠"):
+        assert word not in alert["message"].lower()
+    assert "plagiarism_alert" not in actions
+    assert student.frustration_score == 0.7
+    assert student.status == "green"
     assert "preview" not in student.paste_events[0]
 
 
-def test_large_paste_red_status_expires_after_three_more_pastes(session, student):
-    process_telemetry(session, student_id(session, "student0"), make_event("paste", length=500))
-    assert student.status == "red"
-    for _ in range(3):
-        process_telemetry(session, student_id(session, "student0"), make_event("paste", length=5))
+def test_large_paste_never_changes_status_by_itself(session, student):
+    sid = student_id(session, "student0")
+    process_telemetry(session, sid, make_event("paste", length=500))
     assert student.status == "green"
-
-
-def test_large_paste_without_typing_flags_status_only(session, student):
-    process_telemetry(session, student_id(session, "student0"), make_event("paste", length=500))
-    assert student.status == "red"
     assert student.support_signals == 0
+    for _ in range(3):
+        process_telemetry(session, sid, make_event("paste", length=5000))
+    assert student.status == "green"
+    assert len(student.paste_events) == 4
 
 
 # ── help ──────────────────────────────────────────────────────────
@@ -467,19 +471,15 @@ def test_status_green_by_default():
     assert _status() == "green"
 
 
-def test_status_red_on_recent_large_paste():
-    assert _status(pastes=(PASTE_LENGTH_THRESHOLD,)) == "red"
-    assert _status(pastes=(PASTE_LENGTH_THRESHOLD - 1,)) == "green"
+@pytest.mark.parametrize("pastes", [(PASTE_LENGTH_THRESHOLD,), (500,), (1, 500, 1, 1), (5000, 5000, 5000)])
+def test_status_ignores_large_pastes(pastes):
+    """Large pastes are a teacher-only observation; they never colour a student."""
+    assert _status(pastes=pastes) == "green"
+    assert _status(pastes=pastes, paste_age=1000) == "green"
 
 
-def test_status_large_paste_flag_ages_out():
-    assert _status(pastes=(500,), paste_age=PASTE_FLAG_SECONDS - 1) == "red"
-    assert _status(pastes=(500,), paste_age=PASTE_FLAG_SECONDS + 1) == "green"
-
-
-def test_status_large_paste_only_checks_last_three():
-    assert _status(pastes=(500, 1, 1, 1)) == "green"
-    assert _status(pastes=(1, 500, 1, 1)) == "red"
+def test_status_large_paste_does_not_mask_real_signals():
+    assert _status(pastes=(500,), idle=IDLE_CRITICAL_SECONDS) == "red"
 
 
 @pytest.mark.parametrize("hints", [1, 2, 5])
