@@ -13,8 +13,6 @@ from telemetry import (
     _next_hint_level,
     _pause_interval_for_next_hint,
     _update_status,
-    _update_understanding_score,
-    compute_understanding_score,
     detect_confusion_spike,
     is_duplicate_confusion_spike,
     process_telemetry,
@@ -44,7 +42,7 @@ def test_unknown_event_type_only_updates_dashboard(session, student):
     actions = process_telemetry(session, "student0", make_event("mystery"))
     assert actions == {"dashboard_update": True}
     assert student.status == "green"
-    assert student.understanding_score == 100.0
+    assert student.support_signals == 0
 
 
 def test_current_code_in_payload_is_stored_for_any_event(session, student):
@@ -127,7 +125,6 @@ def test_idle_before_any_typing_does_not_accrue(session, student):
     assert "should_hint" not in actions
     assert student.frustration_score == 0.0
     assert student.status == "green"
-    assert student.understanding_score == 100.0
 
 
 def test_idle_before_typing_resets_previously_set_idle(session, student):
@@ -309,7 +306,6 @@ def test_large_paste_raises_alert_red_status_and_zero_frustration(session, stude
     assert student.frustration_score == 0
     assert student.status == "red"
     assert student.paste_events[0]["preview"] == "z" * 100
-    assert student.understanding_score == 80.0
 
 
 def test_large_paste_red_status_expires_after_three_more_pastes(session, student):
@@ -320,10 +316,10 @@ def test_large_paste_red_status_expires_after_three_more_pastes(session, student
     assert student.status == "green"
 
 
-def test_large_paste_without_typing_penalises_understanding(session, student):
+def test_large_paste_without_typing_flags_status_only(session, student):
     process_telemetry(session, "student0", make_event("paste", length=500))
     assert student.status == "red"
-    assert student.understanding_score == pytest.approx(80.0)
+    assert student.support_signals == 0
 
 
 # ── help ──────────────────────────────────────────────────────────
@@ -422,100 +418,25 @@ def test_pause_wait_handles_none_idle_seconds(session, student):
     assert student.idle_seconds == pytest.approx(0, abs=1)
 
 
-# ── _update_understanding_score ───────────────────────────────────
+# ── support signals & quiz evidence ───────────────────────────────
 
 
-def test_understanding_ignores_idle_before_work_but_not_other_penalties():
+def test_support_signals_count_hints_and_help_requests():
     s = StudentState("x")
-    s.idle_seconds = 300
-    _update_understanding_score(s)
-    assert s.understanding_score == 100.0
-    s.hints_given = 1
-    s.frustration_score = 1.0
-    _update_understanding_score(s)
-    assert s.understanding_score == pytest.approx(100 - 18 - 20)
-
-
-def test_compute_understanding_score_is_pure_and_matches_update():
-    s = StudentState("x")
-    start_work(s)
+    assert s.support_signals == 0
     s.hints_given = 2
-    s.idle_seconds = 150
-    s.frustration_score = 0.5
-    s.paste_events = [{"length": PASTE_LENGTH_THRESHOLD}]
-    expected = 100 - 2 * 18 - 12.5 - 10 - 20
-    assert compute_understanding_score(s) == pytest.approx(expected)
-    assert s.understanding_score == 100.0  # untouched
-    _update_understanding_score(s)
-    assert s.understanding_score == pytest.approx(expected)
+    s.help_requests = ["stuck", "still stuck"]
+    assert s.support_signals == 4
 
 
-def test_understanding_hint_penalty_is_18_per_hint():
-    s = StudentState("x")
-    start_work(s)
-    s.hints_given = 2
-    _update_understanding_score(s)
-    assert s.understanding_score == pytest.approx(64.0)
-
-
-def test_understanding_idle_penalty_scales_to_25_at_300s():
-    s = StudentState("x")
-    start_work(s)
-    s.idle_seconds = 150
-    _update_understanding_score(s)
-    assert s.understanding_score == pytest.approx(87.5)
-    s.idle_seconds = 1000  # capped at 300s -> 25
-    _update_understanding_score(s)
-    assert s.understanding_score == pytest.approx(75.0)
-
-
-def test_understanding_frustration_penalty_is_20_at_max():
-    s = StudentState("x")
-    start_work(s)
-    s.frustration_score = 0.5
-    _update_understanding_score(s)
-    assert s.understanding_score == pytest.approx(90.0)
-    s.frustration_score = 3.0  # capped at 1.0
-    _update_understanding_score(s)
-    assert s.understanding_score == pytest.approx(80.0)
-
-
-def test_understanding_paste_penalty_only_considers_last_three_pastes():
-    s = StudentState("x")
-    start_work(s)
-    s.paste_events = [{"length": 500}]
-    _update_understanding_score(s)
-    assert s.understanding_score == pytest.approx(80.0)
-    s.paste_events += [{"length": 1}, {"length": 1}, {"length": 1}]
-    _update_understanding_score(s)
-    assert s.understanding_score == pytest.approx(100.0)
-
-
-def test_understanding_combined_penalties_sum():
-    s = StudentState("x")
-    start_work(s)
-    s.hints_given = 1
-    s.idle_seconds = 300
-    s.frustration_score = 1.0
-    s.paste_events = [{"length": 200}]
-    _update_understanding_score(s)
-    assert s.understanding_score == pytest.approx(100 - 18 - 25 - 20 - 20)
-
-
-def test_understanding_clamps_to_zero():
-    s = StudentState("x")
-    start_work(s)
-    s.hints_given = 6  # 108 penalty
-    _update_understanding_score(s)
-    assert s.understanding_score == 0.0
-
-
-def test_understanding_never_exceeds_100():
-    s = StudentState("x")
-    start_work(s)
-    s.frustration_score = -5.0
-    _update_understanding_score(s)
-    assert s.understanding_score == 100.0
+def test_telemetry_never_infers_a_quiz_score(session, student):
+    start_work(student)
+    student.hints_given = 4
+    student.frustration_score = 1.0
+    process_telemetry(session, "student0", make_event("idle", idle_seconds=300))
+    process_telemetry(session, "student0", make_event("paste", length=PASTE_LENGTH_THRESHOLD))
+    assert student.quiz_score is None
+    assert student.to_dict()["quiz_score"] is None
 
 
 # ── _update_status ────────────────────────────────────────────────

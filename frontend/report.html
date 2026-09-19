@@ -89,28 +89,28 @@ body{font-family:'Source Sans 3',sans-serif;background:var(--cream);color:var(--
 
   <div class="kpi-row">
     <div class="kpi"><div class="kpi-label">Students</div><div class="kpi-val" id="kpiStudents">0</div><div class="kpi-sub">joined session</div></div>
-    <div class="kpi"><div class="kpi-label">Understanding</div><div class="kpi-val" id="kpiUnderstanding">0%</div><div class="kpi-sub">same formula as live dashboard</div></div>
+    <div class="kpi"><div class="kpi-label">Quiz Accuracy</div><div class="kpi-val" id="kpiUnderstanding">—</div><div class="kpi-sub" id="kpiQuizSub">no quiz submitted</div></div>
     <div class="kpi"><div class="kpi-label">AI Hints</div><div class="kpi-val" id="kpiHints">0</div><div class="kpi-sub">total delivered</div></div>
-    <div class="kpi"><div class="kpi-label">Avg Hints</div><div class="kpi-val" id="kpiAvgHints">0</div><div class="kpi-sub">per student</div></div>
+    <div class="kpi"><div class="kpi-label">Help Requests</div><div class="kpi-val" id="kpiHelp">0</div><div class="kpi-sub">students asked explicitly</div></div>
     <div class="kpi"><div class="kpi-label">Need Follow-up</div><div class="kpi-val" id="kpiCritical">0</div><div class="kpi-sub">&ge;3 hints or flagged</div></div>
   </div>
 
   <div class="fb-grid">
-    <div class="fb"><div class="fb-val" style="color:var(--teal)" id="fbMastered">0</div><div class="fb-title">Mastered</div><div class="fb-desc">0-1 hints used.</div></div>
-    <div class="fb"><div class="fb-val" style="color:var(--amber)" id="fbPartial">0</div><div class="fb-title">Partial</div><div class="fb-desc">2-4 hints used.</div></div>
-    <div class="fb"><div class="fb-val" style="color:var(--red)" id="fbStruggling">0</div><div class="fb-title">Struggling</div><div class="fb-desc">5+ hints or high struggle.</div></div>
+    <div class="fb"><div class="fb-val" style="color:var(--teal)" id="fbMastered">0</div><div class="fb-title">Strong</div><div class="fb-desc">quiz score 80%+.</div></div>
+    <div class="fb"><div class="fb-val" style="color:var(--amber)" id="fbPartial">0</div><div class="fb-title">Mixed</div><div class="fb-desc">quiz score 50-79%.</div></div>
+    <div class="fb"><div class="fb-val" style="color:var(--red)" id="fbStruggling">0</div><div class="fb-title">Weak</div><div class="fb-desc">quiz score below 50%.</div></div>
   </div>
 
   <div class="insight" id="insightBox"><span class="spinner"></span> Loading report…</div>
 
   <div class="grid" style="margin-top:.9rem">
     <div class="card">
-      <div class="card-head"><div class="card-title">Understanding Breakdown</div><div style="font-size:.72rem;color:var(--text-dim)">mastery by hint usage</div></div>
+      <div class="card-head"><div class="card-title">Quiz Breakdown</div><div style="font-size:.72rem;color:var(--text-dim)">by quiz correctness</div></div>
       <div class="card-body">
-        <div class="u-row"><div class="u-label">Mastered (0-1)</div><div class="u-track"><div id="uMastered" class="u-fill" style="width:0;background:var(--teal)">0%</div></div><div class="u-pct" id="uMasteredPct">0%</div></div>
-        <div class="u-row"><div class="u-label">Partial (2-4)</div><div class="u-track"><div id="uPartial" class="u-fill" style="width:0;background:var(--amber)">0%</div></div><div class="u-pct" id="uPartialPct">0%</div></div>
-        <div class="u-row"><div class="u-label">Struggling (5+)</div><div class="u-track"><div id="uStruggling" class="u-fill" style="width:0;background:var(--red)">0%</div></div><div class="u-pct" id="uStrugglingPct">0%</div></div>
-        <div class="u-row"><div class="u-label">Incomplete</div><div class="u-track"><div id="uIncomplete" class="u-fill" style="width:0;background:#7f8cb7">0%</div></div><div class="u-pct" id="uIncompletePct">0%</div></div>
+        <div class="u-row"><div class="u-label">Strong (80%+)</div><div class="u-track"><div id="uMastered" class="u-fill" style="width:0;background:var(--teal)">0%</div></div><div class="u-pct" id="uMasteredPct">0%</div></div>
+        <div class="u-row"><div class="u-label">Mixed (50-79%)</div><div class="u-track"><div id="uPartial" class="u-fill" style="width:0;background:var(--amber)">0%</div></div><div class="u-pct" id="uPartialPct">0%</div></div>
+        <div class="u-row"><div class="u-label">Weak (&lt;50%)</div><div class="u-track"><div id="uStruggling" class="u-fill" style="width:0;background:var(--red)">0%</div></div><div class="u-pct" id="uStrugglingPct">0%</div></div>
+        <div class="u-row"><div class="u-label">No quiz evidence</div><div class="u-track"><div id="uIncomplete" class="u-fill" style="width:0;background:#7f8cb7">0%</div></div><div class="u-pct" id="uIncompletePct">0%</div></div>
         <div style="margin-top:.8rem;font-size:.74rem;color:var(--text-dim)">Confusion timeline (4-minute windows)</div>
         <div id="timelineBars" class="timeline-bars"></div>
         <div id="timelineAxis" class="timeline-axis"></div>
@@ -142,17 +142,21 @@ function setMeta(report){
 function setKpis(report){
   const a = report.analytics || {};
   byId('kpiStudents').textContent = a.total_students ?? 0;
-  byId('kpiUnderstanding').textContent = `${Math.round(a.avg_understanding_score || 0)}%`;
+  const acc = (a.quiz_accuracy === null || a.quiz_accuracy === undefined) ? null : Math.round(a.quiz_accuracy);
+  byId('kpiUnderstanding').textContent = acc === null ? '—' : `${acc}%`;
+  byId('kpiQuizSub').textContent = acc === null
+    ? 'no quiz submitted'
+    : `${a.quiz_submissions ?? 0}/${a.total_students ?? 0} submitted`;
   byId('kpiHints').textContent = a.total_hints ?? 0;
-  byId('kpiAvgHints').textContent = (a.hints_per_student_per_task ?? 0).toFixed ? (a.hints_per_student_per_task).toFixed(1) : (a.hints_per_student_per_task ?? 0);
+  byId('kpiHelp').textContent = a.total_help_requests ?? 0;
   byId('kpiCritical').textContent = a.critical_students ?? 0;
 }
 
 function setFeedbackCards(report){
   const c = report.counts || {};
-  byId('fbMastered').textContent = c.mastered ?? 0;
-  byId('fbPartial').textContent = c.partial ?? 0;
-  byId('fbStruggling').textContent = c.struggling ?? 0;
+  byId('fbMastered').textContent = c.strong ?? 0;
+  byId('fbPartial').textContent = c.mixed ?? 0;
+  byId('fbStruggling').textContent = c.weak ?? 0;
 }
 
 function setInsight(report){
@@ -164,10 +168,10 @@ function setInsight(report){
 function setBreakdown(report){
   const p = report.percentages || {};
   const rows = [
-    ['Mastered', p.mastered || 0, 'uMastered'],
-    ['Partial', p.partial || 0, 'uPartial'],
-    ['Struggling', p.struggling || 0, 'uStruggling'],
-    ['Incomplete', p.incomplete || 0, 'uIncomplete'],
+    ['Strong', p.strong || 0, 'uMastered'],
+    ['Mixed', p.mixed || 0, 'uPartial'],
+    ['Weak', p.weak || 0, 'uStruggling'],
+    ['No quiz evidence', p.no_evidence || 0, 'uIncomplete'],
   ];
   rows.forEach(([name, val, id]) => {
     byId(id).style.width = `${val}%`;

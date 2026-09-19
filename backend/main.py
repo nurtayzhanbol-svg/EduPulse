@@ -20,7 +20,7 @@ from models import (
 )
 import session_manager
 from auth import bearer_token, require_student, require_teacher, token_matches
-from telemetry import compute_understanding_score, is_duplicate_confusion_spike, process_telemetry
+from telemetry import is_duplicate_confusion_spike, process_telemetry
 from ai_engine import (
     generate_hint,
     generate_quiz,
@@ -122,7 +122,11 @@ def _build_session_analytics(session) -> dict:
             "on_track_students": 0,
             "critical_students": 0,
             "struggling_ratio": 0.0,
-            "avg_understanding_score": 0.0,
+            "total_help_requests": 0,
+            "total_support_signals": 0,
+            "avg_support_signals": 0.0,
+            "quiz_submissions": 0,
+            "quiz_accuracy": None,
             "avg_frustration": 0.0,
             "avg_idle_seconds": 0.0,
             "avg_time_in_session_seconds": 0.0,
@@ -142,8 +146,12 @@ def _build_session_analytics(session) -> dict:
         1 for s in students
         if s.hints_given >= 1 or s.frustration_score >= 0.5
     )
-    # Same formula as the live dashboard (telemetry.compute_understanding_score).
-    avg_score = sum(compute_understanding_score(s) for s in students) / total_students
+    total_help_requests = sum(len(s.help_requests) for s in students)
+    total_support_signals = sum(s.support_signals for s in students)
+    # Quiz correctness is the only direct evidence of understanding; absent a
+    # submission there is no evidence, which is different from a low score.
+    quiz_scores = [float(s.quiz_score) for s in students if s.quiz_score is not None]
+    quiz_accuracy = round(sum(quiz_scores) / len(quiz_scores), 1) if quiz_scores else None
     avg_frustration = sum(s.frustration_score for s in students) / total_students
     avg_idle = sum(s.idle_seconds for s in students) / total_students
     avg_time_in_session = sum(max(0.0, s.last_activity - s.joined_at) for s in students) / total_students
@@ -158,14 +166,18 @@ def _build_session_analytics(session) -> dict:
 
     hints_per_student_per_task = round(total_hints / total_students, 2)
     struggling_ratio = round((struggling_students / total_students) * 100, 1)
+    avg_support_signals = round(total_support_signals / total_students, 2)
 
     bars = [
+        {"label": "Quiz Accuracy", "value": quiz_accuracy if quiz_accuracy is not None else 0.0, "max": 100.0, "unit": "%" if quiz_accuracy is not None else " (no evidence yet)"},
+        {"label": "Quiz Submissions", "value": float(len(quiz_scores)), "max": float(total_students), "unit": f"/{total_students}"},
+        {"label": "Explicit Help Requests", "value": float(total_help_requests), "max": max(1.0, float(total_help_requests)), "unit": ""},
+        {"label": "Support Signals per Student", "value": avg_support_signals, "max": max(3.0, avg_support_signals + 1.0), "unit": ""},
         {"label": "On-Track Students", "value": float(on_track_students), "max": float(total_students), "unit": f"/{total_students}"},
         {"label": "Struggling (>=1 hint)", "value": float(struggling_students), "max": float(total_students), "unit": f"/{total_students}"},
         {"label": "High Struggle (>=2 hints)", "value": float(high_struggle_students), "max": float(total_students), "unit": f"/{total_students}"},
         {"label": "Needs Follow-up (>=3 hints or flagged)", "value": float(critical_students), "max": float(total_students), "unit": f"/{total_students}"},
         {"label": "Confused Students", "value": float(confused_students), "max": float(total_students), "unit": f"/{total_students}"},
-        {"label": "Avg Understanding", "value": round(avg_score, 1), "max": 100.0, "unit": "%"},
         {"label": "Avg Frustration", "value": round(avg_frustration, 2), "max": 1.0, "unit": ""},
         {"label": "Hints per Student/Task", "value": float(hints_per_student_per_task), "max": max(3.0, hints_per_student_per_task + 1.0), "unit": ""},
         {"label": "Avg Idle", "value": round(avg_idle, 1), "max": max(120.0, avg_idle + 30.0), "unit": "s"},
@@ -192,10 +204,20 @@ def _build_session_analytics(session) -> dict:
         insights.append(
             f"{long_pause_students} students reached the pause-hint threshold ({getattr(session, 'pause_threshold_seconds', 60)}s)."
         )
-    if avg_score >= 70:
-        insights.append("Class readiness looks good for a slightly harder follow-up task next week.")
-    elif avg_score <= 40:
-        insights.append("Class understanding is low. Start next class with a focused recap and worked example.")
+    if quiz_accuracy is None:
+        insights.append(
+            "No quiz evidence yet — run a quiz to measure what the class actually understood."
+        )
+    elif quiz_accuracy >= 70:
+        insights.append(
+            f"Quiz accuracy {quiz_accuracy}% across {len(quiz_scores)}/{total_students} submissions; "
+            "class readiness looks good for a harder follow-up task."
+        )
+    elif quiz_accuracy <= 40:
+        insights.append(
+            f"Quiz accuracy {quiz_accuracy}% across {len(quiz_scores)}/{total_students} submissions. "
+            "Start next class with a focused recap and worked example."
+        )
 
     return {
         "total_students": total_students,
@@ -207,7 +229,11 @@ def _build_session_analytics(session) -> dict:
         "on_track_students": on_track_students,
         "critical_students": critical_students,
         "struggling_ratio": struggling_ratio,
-        "avg_understanding_score": round(avg_score, 1),
+        "total_help_requests": total_help_requests,
+        "total_support_signals": total_support_signals,
+        "avg_support_signals": avg_support_signals,
+        "quiz_submissions": len(quiz_scores),
+        "quiz_accuracy": quiz_accuracy,
         "avg_frustration": round(avg_frustration, 2),
         "avg_idle_seconds": round(avg_idle, 1),
         "avg_time_in_session_seconds": round(avg_time_in_session, 1),
@@ -225,10 +251,13 @@ def _build_report_payload(session) -> dict:
     students = list(session.students.values())
     total_students = len(students)
 
-    mastered = sum(1 for s in students if s.hints_given <= 1)
-    partial = sum(1 for s in students if 2 <= s.hints_given <= 4)
-    struggling = sum(1 for s in students if s.hints_given >= 5)
-    incomplete = max(0, total_students - mastered - partial - struggling)
+    # Buckets are quiz correctness, not hint usage: a student who asked for help and
+    # then answered correctly understood the material.
+    graded = [s for s in students if s.quiz_score is not None]
+    strong = sum(1 for s in graded if s.quiz_score >= 80)
+    mixed = sum(1 for s in graded if 50 <= s.quiz_score < 80)
+    weak = sum(1 for s in graded if s.quiz_score < 50)
+    no_evidence = max(0, total_students - len(graded))
 
     def pct(v: int) -> int:
         return int(round((v / total_students) * 100)) if total_students else 0
@@ -284,9 +313,11 @@ def _build_report_payload(session) -> dict:
             "hints": int(s.hints_given),
             "status": s.status,
             "idle_seconds": round(float(s.idle_seconds), 1),
-            "understanding_score": round(compute_understanding_score(s), 1),
+            "help_requests": len(s.help_requests),
+            "support_signals": s.support_signals,
+            "quiz_score": s.quiz_score,
         }
-        for s in sorted(students, key=lambda x: (x.hints_given, x.name), reverse=True)
+        for s in sorted(students, key=lambda x: (x.support_signals, x.name), reverse=True)
     ]
 
     return {
@@ -299,16 +330,16 @@ def _build_report_payload(session) -> dict:
         "summary": session.summary or "Session completed.",
         "analytics": analytics,
         "counts": {
-            "mastered": mastered,
-            "partial": partial,
-            "struggling": struggling,
-            "incomplete": incomplete,
+            "strong": strong,
+            "mixed": mixed,
+            "weak": weak,
+            "no_evidence": no_evidence,
         },
         "percentages": {
-            "mastered": pct(mastered),
-            "partial": pct(partial),
-            "struggling": pct(struggling),
-            "incomplete": pct(incomplete),
+            "strong": pct(strong),
+            "mixed": pct(mixed),
+            "weak": pct(weak),
+            "no_evidence": pct(no_evidence),
         },
         "timeline": {
             "labels": timeline_labels,
@@ -589,6 +620,11 @@ async def submit_quiz(session_id: str, submission: dict, request: Request):
         "total": total,
         "results": results,
     }
+    student = session.students.get(student_name)
+    if student is not None:
+        student.quiz_score = float(score)
+        student.quiz_correct = correct
+        student.quiz_total = total
     session_manager.persist_session(session)
 
     # Update teacher dashboard
@@ -597,7 +633,8 @@ async def submit_quiz(session_id: str, submission: dict, request: Request):
         "score": score,
         "correct": correct,
         "total": total,
-    }, room=session_id)
+    }, room=teacher_room(session_id))
+    await broadcast_dashboard(session)
 
     return {
         "score": score,
