@@ -197,3 +197,48 @@ async def test_disconnect_clears_socket_binding(sio_spy):
     })
     await main.disconnect("sid-a")
     assert "sid-a" not in main._student_sockets
+
+
+# ── confusion spike dedup ─────────────────────────────────────────
+
+
+def _spike_alerts(emitted):
+    return [d for e, d, _ in emitted if e == "alert" and d.get("type") == "confusion_spike"]
+
+
+async def test_confusion_spike_alert_is_deduped_within_30s_and_refires_after(sio_spy, monkeypatch):
+    emitted, _ = sio_spy
+    session, _, alice_token, _ = setup_session()
+    for name in ("Carol", "Dave"):
+        session_manager.join_session(session.session_id, name)
+    for name in ("Bob", "Carol", "Dave"):
+        session.students[name].status = "yellow"
+    await main.join_room("sid-a", {
+        "session_id": session.session_id, "role": "student",
+        "student_name": "Alice", "student_token": alice_token,
+    })
+
+    def send():
+        return main.telemetry("sid-a", keystroke(session.session_id, "Alice", alice_token, count=1))
+
+    # Every keystroke re-marks the other three as yellow-but-unchanged, so a spike is
+    # detected each time; only the first may alert.
+    await send()
+    await send()
+    assert len(_spike_alerts(emitted)) == 1
+    assert len([a for a in session.alerts if a["type"] == "confusion_spike"]) == 1
+    first_ts = session.alerts[0]["timestamp"]
+
+    # Still inside the window: a plagiarism alert in between must not reset it.
+    await main.telemetry("sid-a", {
+        "session_id": session.session_id, "student_name": "Alice", "student_token": alice_token,
+        "event": {"event_type": "paste", "payload": {"length": 500}},
+    })
+    await send()
+    assert len(_spike_alerts(emitted)) == 1
+
+    # Past the window: fires again.
+    session.alerts[0]["timestamp"] = first_ts - 31
+    await send()
+    assert len(_spike_alerts(emitted)) == 2
+    assert len([a for a in session.alerts if a["type"] == "confusion_spike"]) == 2

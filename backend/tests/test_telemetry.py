@@ -14,7 +14,9 @@ from telemetry import (
     _pause_interval_for_next_hint,
     _update_status,
     _update_understanding_score,
+    compute_understanding_score,
     detect_confusion_spike,
+    is_duplicate_confusion_spike,
     process_telemetry,
 )
 from models import StudentState
@@ -318,16 +320,10 @@ def test_large_paste_red_status_expires_after_three_more_pastes(session, student
     assert student.status == "green"
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="Large paste with no prior typing keeps understanding_score at 100 because "
-    "_update_understanding_score's has_started_work guard ignores paste_events "
-    "(status is red, but the score says perfect understanding).",
-)
 def test_large_paste_without_typing_penalises_understanding(session, student):
     process_telemetry(session, "student0", make_event("paste", length=500))
     assert student.status == "red"
-    assert student.understanding_score < 100.0
+    assert student.understanding_score == pytest.approx(80.0)
 
 
 # ── help ──────────────────────────────────────────────────────────
@@ -429,13 +425,29 @@ def test_pause_wait_handles_none_idle_seconds(session, student):
 # ── _update_understanding_score ───────────────────────────────────
 
 
-def test_understanding_is_100_before_work_regardless_of_penalties():
+def test_understanding_ignores_idle_before_work_but_not_other_penalties():
     s = StudentState("x")
-    s.hints_given = 5
     s.idle_seconds = 300
-    s.frustration_score = 1.0
     _update_understanding_score(s)
     assert s.understanding_score == 100.0
+    s.hints_given = 1
+    s.frustration_score = 1.0
+    _update_understanding_score(s)
+    assert s.understanding_score == pytest.approx(100 - 18 - 20)
+
+
+def test_compute_understanding_score_is_pure_and_matches_update():
+    s = StudentState("x")
+    start_work(s)
+    s.hints_given = 2
+    s.idle_seconds = 150
+    s.frustration_score = 0.5
+    s.paste_events = [{"length": PASTE_LENGTH_THRESHOLD}]
+    expected = 100 - 2 * 18 - 12.5 - 10 - 20
+    assert compute_understanding_score(s) == pytest.approx(expected)
+    assert s.understanding_score == 100.0  # untouched
+    _update_understanding_score(s)
+    assert s.understanding_score == pytest.approx(expected)
 
 
 def test_understanding_hint_penalty_is_18_per_hint():
@@ -640,6 +652,31 @@ def test_process_telemetry_attaches_confusion_spike(session_factory):
     session.students["student2"].hints_given = 1
     actions = process_telemetry(session, "student2", make_event("keystroke"))
     assert actions["confusion_spike"]["struggling_count"] == 3
+
+
+# ── confusion spike dedup window ─────────────────────────────────────
+
+
+def test_confusion_spike_carries_timestamp():
+    session = make_session(4)
+    _mark_struggling(session, 3)
+    spike = detect_confusion_spike(session)
+    assert spike["timestamp"] == pytest.approx(now_ts(), abs=2)
+
+
+def test_confusion_spike_dedup_uses_30_second_window():
+    session = make_session(4)
+    t0 = 1_000_000.0
+    assert is_duplicate_confusion_spike(session, now=t0) is False
+    session.alerts.append({"type": "plagiarism", "timestamp": t0})
+    assert is_duplicate_confusion_spike(session, now=t0) is False
+    session.alerts.append({"type": "confusion_spike", "timestamp": t0})
+    assert is_duplicate_confusion_spike(session, now=t0 + 29.9) is True
+    assert is_duplicate_confusion_spike(session, now=t0 + 30) is False
+    # A later non-spike alert does not shadow the last spike's timestamp.
+    session.alerts.append({"type": "plagiarism", "timestamp": t0 + 29})
+    assert is_duplicate_confusion_spike(session, now=t0 + 29) is True
+    assert telemetry.CONFUSION_SPIKE_DEDUP_SECONDS == 30
 
 
 def test_module_constants_are_as_documented():

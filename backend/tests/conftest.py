@@ -23,6 +23,16 @@ for _var in ("OPENAI_API_KEY", "AZURE_OPENAI_API_KEY", "AZURE_OPENAI_ENDPOINT"):
 
 from models import SessionState, StudentState, TelemetryEvent  # noqa: E402
 import ai_engine  # noqa: E402
+import session_manager  # noqa: E402
+
+
+@pytest.fixture(autouse=True)
+def _isolated_db(tmp_path, monkeypatch):
+    """Every test gets its own SQLite file and an empty session cache."""
+    monkeypatch.setenv("EDUPULSE_DB", str(tmp_path / "test.db"))
+    session_manager.reset_cache()
+    yield
+    session_manager.reset_cache()
 
 
 @pytest.fixture(autouse=True)

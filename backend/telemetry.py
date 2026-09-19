@@ -13,6 +13,14 @@ BACKSPACE_RATE_THRESHOLD = 0.35
 CONFUSION_SPIKE_MIN_STUDENTS = 3
 CONFUSION_SPIKE_RATIO = 0.5  # 50 % of class
 PAUSE_HINT_COOLDOWN_SECONDS = 45
+CONFUSION_SPIKE_DEDUP_SECONDS = 30
+
+# ── Understanding score weights (see compute_understanding_score) ──
+HINT_PENALTY_PER_HINT = 18.0
+IDLE_PENALTY_MAX = 25.0
+IDLE_PENALTY_CAP_SECONDS = 300
+FRUSTRATION_PENALTY_MAX = 20.0
+PASTE_PENALTY = 20.0
 
 
 def _next_hint_level(student: StudentState) -> int:
@@ -152,22 +160,44 @@ def process_telemetry(session: SessionState, student_name: str, event: Telemetry
     return actions
 
 
-def _update_understanding_score(student: StudentState):
-    """Penalty-based understanding score focused on hints + idle + frustration."""
-    has_started_work = bool(student.current_code.strip()) or student.total_keystrokes > 0
-    if not has_started_work:
-        student.understanding_score = 100.0
-        return
+def compute_understanding_score(student: StudentState) -> float:
+    """The single "Understanding" score (0-100) used by the live dashboard AND the
+    end-of-session report, so both always agree for the same student state.
 
-    hint_penalty = student.hints_given * 18.0
-    idle_penalty = min(student.idle_seconds, 300) / 300 * 25.0
-    frustration_penalty = min(1.0, student.frustration_score) * 20.0
+    It starts at 100 and subtracts four independent penalties:
+
+    * **Hints** — ``HINT_PENALTY_PER_HINT`` (18) per hint taken, uncapped. A student
+      needing 3 hints is at most 46; 6 hints reach 0. Hints are the strongest signal
+      because each one means the student could not progress alone.
+    * **Idle** — linear in ``idle_seconds`` up to ``IDLE_PENALTY_CAP_SECONDS`` (300s),
+      at most ``IDLE_PENALTY_MAX`` (25). Applied only once the student has started
+      working (typed or has code): idle time before starting is not a signal.
+    * **Frustration** — ``frustration_score`` (0-1) x ``FRUSTRATION_PENALTY_MAX`` (20).
+      Frustration accumulates from high backspace rates, long pauses and help requests.
+    * **Large paste** — flat ``PASTE_PENALTY`` (20) if any of the last three pastes was
+      >= ``PASTE_LENGTH_THRESHOLD`` chars (probable copy/paste of a solution). Applied
+      regardless of whether the student typed anything first.
+
+    The result is clamped to [0, 100]. The report's ``avg_understanding_score`` is the
+    mean of this value over students at the moment the session ended.
+    """
+    has_started_work = bool(student.current_code.strip()) or student.total_keystrokes > 0
+
+    hint_penalty = student.hints_given * HINT_PENALTY_PER_HINT
+    idle_penalty = 0.0
+    if has_started_work:
+        idle_penalty = min(student.idle_seconds, IDLE_PENALTY_CAP_SECONDS) / IDLE_PENALTY_CAP_SECONDS * IDLE_PENALTY_MAX
+    frustration_penalty = max(0.0, min(1.0, student.frustration_score)) * FRUSTRATION_PENALTY_MAX
     paste_penalty = 0.0
-    if any(p["length"] >= PASTE_LENGTH_THRESHOLD for p in student.paste_events[-3:]):
-        paste_penalty = 20.0
+    if any(p.get("length", 0) >= PASTE_LENGTH_THRESHOLD for p in student.paste_events[-3:]):
+        paste_penalty = PASTE_PENALTY
 
     score = 100.0 - hint_penalty - idle_penalty - frustration_penalty - paste_penalty
-    student.understanding_score = max(0.0, min(100.0, score))
+    return max(0.0, min(100.0, score))
+
+
+def _update_understanding_score(student: StudentState):
+    student.understanding_score = compute_understanding_score(student)
 
 
 def _update_status(student: StudentState):
@@ -195,6 +225,20 @@ def _update_status(student: StudentState):
         student.status = "green"
 
 
+def is_duplicate_confusion_spike(session: SessionState, now: float | None = None,
+                                 window_seconds: float = CONFUSION_SPIKE_DEDUP_SECONDS) -> bool:
+    """True when a confusion_spike alert was already raised within ``window_seconds``."""
+    now = datetime.now().timestamp() if now is None else now
+    for alert in reversed(session.alerts):
+        if alert.get("type") != "confusion_spike":
+            continue
+        ts = alert.get("timestamp")
+        if isinstance(ts, (int, float)) and now - ts < window_seconds:
+            return True
+        return False
+    return False
+
+
 def detect_confusion_spike(session: SessionState) -> dict | None:
     """Check if enough students are struggling simultaneously."""
     if len(session.students) < 2:
@@ -214,6 +258,7 @@ def detect_confusion_spike(session: SessionState) -> dict | None:
             "struggling_count": len(struggling),
             "total_count": len(session.students),
             "students": struggling,
+            "timestamp": datetime.now().timestamp(),
             "message": f"🚨 Class-wide confusion detected! {len(struggling)}/{len(session.students)} students are struggling.",
         }
     return None
