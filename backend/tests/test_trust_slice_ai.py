@@ -165,6 +165,15 @@ def test_timeout_and_retries_are_applied_to_the_provider_client(monkeypatch):
 # ── Hint gating (explicit-first) ──────────────────────────────────
 
 
+def test_hint_cap_requires_teacher_help(session):
+    student = session.student_by_name("student0")
+    student.hints_given = ai_engine.MAX_HINTS_PER_STUDENT
+    gate = ai_engine.gate_hint(student, "help_request", now=0.0)
+    assert gate.allowed is False
+    assert gate.reason == "hint_cap"
+    assert "teacher" in gate.message.lower()
+
+
 def test_first_automatic_nudge_is_level_one(session):
     student = session.student_by_name("student0")
     assert student.hint_level == 0
@@ -267,7 +276,6 @@ def test_telemetry_repeated_idle_escalation_is_blocked_by_the_gate(session, monk
     student.hint_level = 1
 
     # telemetry's own 45s pause cooldown has elapsed, but unchanged code means no proposal.
-    student.last_pause_hint_at = 0.0
     actions = telemetry.process_telemetry(session, sid, make_event("idle", idle_seconds=long_idle))
     assert not actions.get("should_hint")
     gate = ai_engine.gate_hint(student, "pause_hint", now=1_000.0)

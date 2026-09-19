@@ -1435,8 +1435,8 @@
                     <div class="metric-value" id="smScore" style="font-size:1.5rem;"></div>
                 </div>
                 <div class="metric-card" style="padding: 1rem;">
-                    <div class="metric-label" style="font-size:0.65rem; margin-bottom:0.4rem;">Frustration</div>
-                    <div class="metric-value" id="smFrust" style="font-size:1.5rem;"></div>
+                    <div class="metric-label" style="font-size:0.65rem; margin-bottom:0.4rem;">Needs attention</div>
+                    <div class="metric-value" id="smAttention" style="font-size:1.1rem;"></div>
                 </div>
                 <div class="metric-card" style="padding: 1rem;">
                     <div class="metric-label" style="font-size:0.65rem; margin-bottom:0.4rem;">Idle Timer</div>
@@ -2212,9 +2212,9 @@
                 ? 'var(--text-dim)'
                 : (quiz < 50 ? 'var(--red)' : (quiz < 80 ? 'var(--amber)' : 'var(--teal)'));
 
-            const frust = (s.frustration_score || 0).toFixed(2);
-            document.getElementById('smFrust').textContent = frust;
-            document.getElementById('smFrust').style.color = frust > 0.6 ? 'var(--red)' : (frust > 0.3 ? 'var(--amber)' : 'var(--teal)');
+            const attention = s.attention_reason ? `${s.attention_reason} · ${Math.round(s.seconds_stuck || 0)}s` : '—';
+            document.getElementById('smAttention').textContent = attention;
+            document.getElementById('smAttention').style.color = s.status === 'red' ? 'var(--red)' : (s.status === 'yellow' ? 'var(--amber)' : 'var(--teal)');
 
             document.getElementById('smIdle').textContent = idle;
             document.getElementById('smIdle').style.color = idleSec > 120 ? 'var(--red)' : (idleSec > 60 ? 'var(--amber)' : 'var(--teal)');

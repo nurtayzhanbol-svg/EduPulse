@@ -3,7 +3,7 @@
 from __future__ import annotations
 from datetime import datetime
 from models import SessionState, StudentState, TelemetryEvent
-from ai_engine import code_changed_since_last_hint
+from ai_engine import code_at_last_hint
 
 
 # ── Thresholds ─────────────────────────────────────────────────────
@@ -13,48 +13,38 @@ PASTE_LENGTH_THRESHOLD = 200
 BACKSPACE_RATE_THRESHOLD = 0.35
 CONFUSION_SPIKE_MIN_STUDENTS = 3
 CONFUSION_SPIKE_RATIO = 0.5  # 50 % of class
-PAUSE_HINT_COOLDOWN_SECONDS = 45
+HELP_ATTENTION_WINDOW_SECONDS = 180
+RECOVERY_KEYSTROKES = 20
+RECOVERY_CODE_DELTA_CHARS = 20
+LEFT_ROOM_AFTER_SECONDS = 600
 # Minimum idle time before the single automatic Level-1 nudge; a session's
 # pause_threshold_seconds (teacher-chosen via task level) can only raise it.
 AUTO_HINT_MIN_IDLE_SECONDS = 90
 # A confusion episode must have been over for this long before a new one can alert;
 # while an episode is ongoing the teacher is never re-alerted.
 CONFUSION_SPIKE_QUIET_SECONDS = 60
-# How long a hint/help request keeps colouring a student who has gone back to work.
-SUPPORT_RECOVERY_SECONDS = 120
+CONFUSION_SPIKE_DEDUP_SECONDS = 300
+MAX_HINTS_PER_STUDENT = 5
 
-
-def _next_hint_level(student: StudentState) -> int:
-    return min(3, max(1, student.hint_level + 1))
-
-
-def _pause_interval_for_next_hint(session: SessionState, student: StudentState) -> int:
-    """Pause interval in seconds before the next hint level is allowed."""
-    base = max(30, int(getattr(session, "pause_threshold_seconds", IDLE_WARNING_SECONDS)))
-    level = _next_hint_level(student)
-    multiplier = {1: 1.0, 2: 1.5, 3: 2.0}.get(level, 1.0)
-    return int(base * multiplier)
+def _pause_threshold(session: SessionState) -> int:
+    return max(30, int(session.pause_threshold_seconds))
 
 
 def _auto_hint_idle_threshold(session: SessionState, student: StudentState) -> int:
-    return max(AUTO_HINT_MIN_IDLE_SECONDS, _pause_interval_for_next_hint(session, student))
+    return _pause_threshold(session)
 
 
 def _auto_hint_allowed(student: StudentState, now: float) -> bool:
     """Silence alone earns at most one Level-1 nudge; anything deeper needs the
     student to have changed their code since the last hint (or to ask)."""
-    if student.hint_level >= 3:
-        return False
-    if now - student.last_pause_hint_at < PAUSE_HINT_COOLDOWN_SECONDS:
-        return False
-    return student.hint_level == 0 or code_changed_since_last_hint(student)
+    return student.auto_hints_given == 0 and student.hints_given == 0
 
 
 def _propose_auto_hint(actions: dict, student: StudentState, reason: str, now: float) -> None:
     actions["should_hint"] = True
     actions["hint_reason"] = reason
-    actions["force_hint_level"] = _next_hint_level(student)
-    student.last_pause_hint_at = now
+    actions["force_hint_level"] = 1
+    student.auto_hints_given += 1
 
 
 def process_telemetry(session: SessionState, student_id: str, event: TelemetryEvent) -> dict:
@@ -78,7 +68,11 @@ def process_telemetry(session: SessionState, student_id: str, event: TelemetryEv
 
     # ── Per-event-type processing ──────────────────────────────────
     if event.event_type == "keystroke":
-        student.total_keystrokes += event.payload.get("count", 1)
+        count = event.payload.get("count", 1)
+        student.total_keystrokes += count
+        student.keystrokes_since_stall += count
+        if student.keystrokes_since_stall >= RECOVERY_KEYSTROKES:
+            student.last_help_at = 0
         student.idle_seconds = 0
         ts = event.payload.get("key_ts")
         student.last_keypress_at = ts if isinstance(ts, (int, float)) else now
@@ -89,10 +83,9 @@ def process_telemetry(session: SessionState, student_id: str, event: TelemetryEv
         student.total_keystrokes += count
         ts = event.payload.get("key_ts")
         student.last_keypress_at = ts if isinstance(ts, (int, float)) else now
-        if student.total_keystrokes > 0:
-            rate = student.total_backspaces / student.total_keystrokes
-            if rate > BACKSPACE_RATE_THRESHOLD:
-                student.frustration_score = min(1.0, student.frustration_score + 0.1)
+        student.keystrokes_since_stall += count
+        if student.keystrokes_since_stall >= RECOVERY_KEYSTROKES:
+            student.last_help_at = 0
 
     elif event.event_type == "idle":
         secs = event.payload.get("idle_seconds", 0)
@@ -105,15 +98,11 @@ def process_telemetry(session: SessionState, student_id: str, event: TelemetryEv
         else:
             student.idle_seconds = max(float(secs or 0), paused_for)
         pause_threshold = max(30, int(getattr(session, "pause_threshold_seconds", IDLE_CRITICAL_SECONDS)))
-        warning_threshold = max(15, int(pause_threshold * 0.5))
         critical_threshold = _auto_hint_idle_threshold(session, student)
 
         if student.idle_seconds >= critical_threshold:
-            student.frustration_score = min(1.0, student.frustration_score + 0.12)
             if has_started_work and _auto_hint_allowed(student, now):
                 _propose_auto_hint(actions, student, "idle_threshold_exceeded", now)
-        elif student.idle_seconds >= warning_threshold:
-            student.frustration_score = min(1.0, student.frustration_score + 0.05)
 
     elif event.event_type == "paste":
         length = event.payload.get("length", 0)
@@ -136,7 +125,8 @@ def process_telemetry(session: SessionState, student_id: str, event: TelemetryEv
         msg = event.payload.get("message", "")
         student.help_requests.append(msg)
         student.last_support_at = now
-        student.frustration_score = min(1.0, student.frustration_score + 0.25)
+        student.last_help_at = now
+        student.keystrokes_since_stall = 0
         actions["should_hint"] = True
         actions["hint_reason"] = "help_request"
         actions["help_message"] = msg
@@ -146,7 +136,8 @@ def process_telemetry(session: SessionState, student_id: str, event: TelemetryEv
         previous = student.current_code
         student.set_code(code if isinstance(code, str) else "")
         if student.current_code.strip() != previous.strip():
-            # Changed code is work, whether or not keystrokes were reported.
+            if _code_delta(student.current_code, code_at_last_hint(student)) >= RECOVERY_CODE_DELTA_CHARS:
+                student.last_help_at = 0
             student.idle_seconds = 0
             student.last_keypress_at = now
 
@@ -162,12 +153,11 @@ def process_telemetry(session: SessionState, student_id: str, event: TelemetryEv
 
         pause_threshold = _auto_hint_idle_threshold(session, student)
         if has_started_work and student.idle_seconds >= pause_threshold:
-            student.frustration_score = min(1.0, student.frustration_score + 0.08)
             if _auto_hint_allowed(student, now):
                 _propose_auto_hint(actions, student, "pause_threshold_exceeded", now)
 
     # ── Recalculate status ─────────────────────────────────────────
-    _update_status(student, now)
+    _update_status(student, session, now)
 
     # ── Check class-wide confusion ─────────────────────────────────
     spike = track_confusion_episode(session, now)
@@ -177,17 +167,15 @@ def process_telemetry(session: SessionState, student_id: str, event: TelemetryEv
     return actions
 
 
-def refresh_status(student: StudentState, now: float | None = None):
-    """Recompute status outside the telemetry loop (e.g. once a hint is delivered)."""
-    _update_status(student, now)
+def refresh_status(student: StudentState, session: SessionState, now: float | None = None):
+    _update_status(student, session, now)
 
 
-def _stalled_since_support(student: StudentState) -> bool:
-    """True when support arrived and the student has not typed anything since."""
-    return student.last_support_at > 0 and student.last_keypress_at < student.last_support_at
+def _code_delta(current: str, previous: str) -> int:
+    return sum(1 for a, b in zip(current, previous) if a != b) + abs(len(current) - len(previous))
 
 
-def _update_status(student: StudentState, now: float | None = None):
+def _update_status(student: StudentState, session: SessionState, now: float | None = None):
     """Traffic light for the student's *current* state, not their history.
 
     Every branch is driven by something that is true right now — ongoing idle or
@@ -197,18 +185,23 @@ def _update_status(student: StudentState, now: float | None = None):
     """
     now = datetime.now().timestamp() if now is None else now
 
-    stuck = _stalled_since_support(student)
-    if student.idle_seconds >= IDLE_CRITICAL_SECONDS or (stuck and student.idle_seconds >= IDLE_WARNING_SECONDS):
+    threshold = _pause_threshold(session)
+    help_recent = student.last_help_at > 0 and now - student.last_help_at < HELP_ATTENTION_WINDOW_SECONDS
+    idle_stalled = student.idle_seconds >= threshold
+    if student.idle_seconds >= 2 * threshold or (help_recent and idle_stalled):
         student.status = "red"
-        return
-
-    if student.idle_seconds >= IDLE_WARNING_SECONDS or (
-        stuck and now - student.last_support_at <= SUPPORT_RECOVERY_SECONDS
-    ):
+    elif idle_stalled or help_recent:
         student.status = "yellow"
-        return
-
-    student.status = "green"
+    else:
+        student.status = "green"
+    if student.status == "green":
+        student.needs_attention_since = None
+        student.attention_reason = ""
+    else:
+        if student.needs_attention_since is None:
+            student.needs_attention_since = now
+            student.keystrokes_since_stall = 0
+        student.attention_reason = "idle" if idle_stalled else "help"
 
 
 GENERIC_HELP_MESSAGES = {"", "student is confused", "i'm confused", "im confused", "confused", "help"}
@@ -230,12 +223,14 @@ def _suggested_action(stuck: list[StudentState]) -> str:
     return "Suggested: pause and re-explain the current step."
 
 
-def detect_confusion_spike(session: SessionState) -> dict | None:
+def detect_confusion_spike(session: SessionState, now: float | None = None) -> dict | None:
     """Check if enough students are stuck *right now* (status is current-state only)."""
+    now = datetime.now().timestamp() if now is None else now
     if len(session.students) < 2:
         return None
 
-    stuck = [s for s in session.students.values() if s.status in ("yellow", "red")]
+    stuck = [s for s in session.students.values()
+             if s.status in ("yellow", "red") and now - s.last_activity < LEFT_ROOM_AFTER_SECONDS]
 
     threshold = max(CONFUSION_SPIKE_MIN_STUDENTS,
                     int(len(session.students) * CONFUSION_SPIKE_RATIO))
@@ -256,6 +251,11 @@ def detect_confusion_spike(session: SessionState) -> dict | None:
     return None
 
 
+def is_duplicate_confusion_spike(session: SessionState, now: float | None = None) -> bool:
+    now = datetime.now().timestamp() if now is None else now
+    return any(a.get("type") == "confusion_spike" and now - a.get("timestamp", 0) < CONFUSION_SPIKE_DEDUP_SECONDS for a in session.alerts)
+
+
 def track_confusion_episode(session: SessionState, now: float | None = None) -> dict | None:
     """Return a spike alert only when a confusion episode *starts*.
 
@@ -263,7 +263,7 @@ def track_confusion_episode(session: SessionState, now: float | None = None) -> 
     stuck the episode ends, and a new one may alert after CONFUSION_SPIKE_QUIET_SECONDS.
     """
     now = datetime.now().timestamp() if now is None else now
-    spike = detect_confusion_spike(session)
+    spike = detect_confusion_spike(session, now)
     if spike is None:
         if session.confusion_episode_active:
             session.confusion_episode_active = False

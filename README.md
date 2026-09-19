@@ -56,7 +56,7 @@ your API credit — every call logs its token usage and the running total.
 backend/
   main.py             FastAPI app, REST endpoints, Socket.IO events
   session_manager.py  session/student lifecycle
-  telemetry.py        event processing, attention status & frustration scoring
+  telemetry.py        event processing, attention status, hint policy
   ai_engine.py        hints, quiz generation, PDF analysis
   pdf_engine.py       PDF text extraction
   models.py           pydantic models
@@ -105,7 +105,7 @@ The server ignores `current_code` / `code` on every other event type and caps st
   live code view and for hint generation). It is never written to disk and is gone when the session
   is deleted or the process restarts.
 - **Persisted in SQLite (`EDUPULSE_DB`):** per-student aggregates (keystroke/backspace counts, idle
-  seconds, frustration score, status, progress), quiz results, help-request messages, hint metadata
+  seconds, status, progress), quiz results, help-request messages, hint metadata
   (count, level, timestamps), teacher nudges as `{message, ts}` (last 50), paste events as
   `{length, timestamp}`, a ring buffer of the last 500 events as `{type, ts}` only, and `consented_at`. Session rows hold the task, uploaded PDF text /
   analysis, alerts, the end-of-session summary and analytics.

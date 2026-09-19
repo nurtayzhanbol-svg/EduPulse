@@ -386,7 +386,9 @@ async def get_config():
 
 @app.post("/api/sessions", response_model=CreateSessionResponse)
 async def create_session(req: CreateSessionRequest):
-    session, teacher_token = session_manager.create_session(req.task_description, req.task_level)
+    session, teacher_token = session_manager.create_session(
+        req.task_description, req.task_level, req.pause_threshold_seconds
+    )
     return CreateSessionResponse(
         session_id=session.session_id,
         join_url=f"/student.html?session={session.session_id}",
@@ -400,6 +402,7 @@ async def create_session_from_pdf(
     task_level: str = Form("medium"),
     mode: str = Form("practical"),
     quiz_difficulty: str = Form("medium"),
+    pause_threshold_seconds: int | None = Form(None),
 ):
     normalized_level = (task_level or "medium").lower()
     if normalized_level not in {"easy", "medium", "hard"}:
@@ -419,7 +422,9 @@ async def create_session_from_pdf(
         difficulty=normalized_quiz_difficulty,
     )
 
-    session, teacher_token = session_manager.create_session(generated_task_description, normalized_level)
+    session, teacher_token = session_manager.create_session(
+        generated_task_description, normalized_level, pause_threshold_seconds
+    )
     session.launched = False  # the teacher reviews the generated task first
     session.task_steps = task_steps
     session.quiz_mode_preference = normalized_mode
@@ -1009,7 +1014,7 @@ async def telemetry(sid, data):
                 "hint": hint_text,
                 "level": student.hint_level,
             }, room=teacher_room(session_id))
-            refresh_status(student)
+            refresh_status(student, session)
             session_manager.persist_session(session)
             await broadcast_dashboard(session)
 

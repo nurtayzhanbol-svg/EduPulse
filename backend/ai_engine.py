@@ -291,6 +291,7 @@ def _material_required_hint(student_name: str) -> str:
 
 DEFAULT_HINT_COOLDOWN_SECONDS = 60.0
 MAX_HINT_LEVEL = 3
+MAX_HINTS_PER_STUDENT = 5
 EXPLICIT_HINT_REASON = "help_request"
 
 # Per-student delivery record: {"last_hint_at": float, "code_at_last_hint": str}
@@ -306,6 +307,10 @@ def _remember_hint_delivery(student: StudentState, now: float | None = None) -> 
         "last_hint_at": time.time() if now is None else now,
         "code_at_last_hint": student.current_code,
     }
+
+
+def code_at_last_hint(student: StudentState) -> str:
+    return _hint_state.get(student.student_id, {}).get("code_at_last_hint", "")
 
 
 def code_changed_since_last_hint(student: StudentState) -> bool:
@@ -331,6 +336,12 @@ def gate_hint(student: StudentState, hint_reason: str, now: float | None = None)
     now = time.time() if now is None else now
     explicit = hint_reason == EXPLICIT_HINT_REASON
     state = _hint_state.get(student.student_id)
+
+    if student.hints_given >= MAX_HINTS_PER_STUDENT:
+        message = (
+            f"{student.name}, please ask your teacher for help with the next step."
+        ) if explicit else ""
+        return HintGate(False, "hint_cap", message)
 
     if student.hint_level >= MAX_HINT_LEVEL:
         message = (
