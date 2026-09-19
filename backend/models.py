@@ -244,6 +244,19 @@ class SessionState:
             "alerts": self.alerts[-20:],  # last 20
         }
 
+    def to_public_dict(self) -> dict:
+        """Unauthenticated view: task and lifecycle only, nothing about any student."""
+        return {
+            "session_id": self.session_id,
+            "task_description": self.task_description,
+            "task_level": self.task_level,
+            "pause_threshold_seconds": self.pause_threshold_seconds,
+            "has_material": bool(self.pdf_text or self.pdf_analysis),
+            "active": self.active,
+            "launched": self.launched,
+            "student_count": len(self.students),
+        }
+
     def to_record(self) -> dict:
         """Persistable session state, excluding students (stored separately)."""
         return {k: v for k, v in vars(self).items() if k != "students"}

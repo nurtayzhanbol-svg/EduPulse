@@ -27,6 +27,9 @@ description: Run local EduPulse teacher/student/report browser checks with PDF f
    while `too_short.pdf` should be rejected.
 2. Choose Hard to reduce incidental idle hints when testing unrelated features.
    Generate Task, review the draft, then Launch Session.
+   For launch-gate checks, use the nonsecret session ID from the teacher URL to
+   attempt a consented student join before Launch. Expect the not-launched error.
+   Edit the review textarea, launch, retry joining, and verify the edited text.
 3. Open the displayed student URL in another tab. Session IDs are not necessarily
    hexadecimal and may contain hyphens.
 4. Before joining, enter a name and verify both disabled Join and Enter submission
@@ -50,6 +53,10 @@ description: Run local EduPulse teacher/student/report browser checks with PDF f
 8. For hints, use the visible "I'm confused — get a hint" flow. If unavailable,
    report it rather than bypassing with hidden JS. Genuine idle hints trigger
    around Easy 60s, Medium 90s, Hard 120s, polled every five seconds.
+   For teacher nudges, use the student-card Nudge button to send Encouragement
+   and Custom hint. Expect a teacher-message banner (visible for about 20 seconds),
+   not an AI hint card. Use a second student tab to verify private delivery.
+   Verify Nudge (2) on the card and Teacher Nudges = 2 on the final report.
 9. End Session and verify the student overlay/editor-disabled state. Open Full
    Report in the same teacher tab; inspect counts and search rendered text for
    removed plagiarism/integrity commentary. Verify the UI actually exercises
@@ -70,6 +77,11 @@ description: Run local EduPulse teacher/student/report browser checks with PDF f
   Student sockets should never receive teacher dashboards or large-paste alerts.
 - Public session serialization is compact; teacher authentication enables full
   code. Do not use browser credentials in shell API requests.
+  Separately audit whether an unauthenticated session response reveals names,
+  code previews, help requests or alerts. Compact serialization alone does not
+  prove student privacy.
+- Inspect `session_ended` frames: student payloads should be empty; only the
+  teacher should receive summary/analytics.
 - Redact tokens from saved headers, JSON, and Socket.IO frames.
 - Keep rendering assertions separate from metric-label correctness.
 

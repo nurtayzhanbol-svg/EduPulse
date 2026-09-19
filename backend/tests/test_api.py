@@ -124,9 +124,11 @@ async def test_full_happy_path(client):
     assert state["task_level"] == "easy"
     assert state["pause_threshold_seconds"] == 60
     assert state["student_count"] == 2
+    assert "students" not in state  # unauthenticated view carries no student data
+    assert state["has_material"] is False
+    state = (await client.get(f"/api/sessions/{sid}", headers=th(sid))).json()
     assert set(state["students"]) == {sid_of(sid, "Alice"), sid_of(sid, "Bob")}
     assert {s["name"] for s in state["students"].values()} == {"Alice", "Bob"}
-    assert state["has_material"] is False
 
     r = await client.post(f"/api/sessions/{sid}/end", headers=th(sid))
     assert r.status_code == 200
@@ -249,7 +251,7 @@ async def test_support_signals_count_hints_and_explicit_help_requests(client):
     zed = session.student_by_name("Zed")
     zed.hints_given = 2
     zed.help_requests = ["why does this loop stop?"]
-    live = (await client.get(f"/api/sessions/{sid}")).json()["students"][zed.student_id]
+    live = (await client.get(f"/api/sessions/{sid}", headers=th(sid))).json()["students"][zed.student_id]
     assert live["support_signals"] == 3
     assert live["help_requests_count"] == 1
     assert live["quiz_score"] is None
