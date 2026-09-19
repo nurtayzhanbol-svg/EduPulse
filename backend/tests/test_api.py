@@ -129,14 +129,16 @@ async def test_full_happy_path(client):
     analytics = ended["analytics"]
     assert analytics["total_students"] == 2
     assert analytics["total_hints"] == 0
-    assert analytics["on_track_students"] == 2
-    assert analytics["quiz_accuracy"] is None
-    assert analytics["quiz_submissions"] == 0
-    assert analytics["total_help_requests"] == 0
-    assert analytics["total_support_signals"] == 0
+    assert analytics["help_request_count"] == 0
+    assert analytics["quiz_avg_correct_pct"] is None
+    assert analytics["quiz_submitted_count"] == 0
     assert "avg_understanding_score" not in analytics
-    assert analytics["insights"][0] == "No students required hints in this session."
-    assert [b["label"] for b in analytics["bars"]][:2] == ["Quiz Accuracy", "Quiz Submissions"]
+    assert analytics["insights"][0] == (
+        "No quiz evidence yet — run a quiz to see what the class actually got right."
+    )
+    assert [b["label"] for b in analytics["bars"]] == [
+        "Quiz submitted", "Quiz avg correct", "Help requests", "Hints given",
+    ]
 
     r = await client.get(f"/api/sessions/{sid}")
     assert r.json()["active"] is False
@@ -147,12 +149,15 @@ async def test_full_happy_path(client):
     assert report["session_id"] == sid
     assert report["task_level"] == "easy"
     assert report["analytics"] == analytics
-    assert report["counts"] == {"strong": 0, "mixed": 0, "weak": 0, "no_evidence": 2}
-    assert report["percentages"]["no_evidence"] == 100
+    assert "counts" not in report
+    assert "percentages" not in report
+    assert report["evidence_note"] == "No evidence yet"
     assert report["duration_minutes"] == 1  # floor of 60s
     assert report["timeline"]["labels"] == ["0"]
     assert report["timeline"]["data"] == [0]
-    assert [s["name"] for s in report["students"]] == ["Bob", "Alice"]
+    assert [s["name"] for s in report["students"]] == ["Alice", "Bob"]
+    assert all(s["quiz"] is None for s in report["students"])
+    assert all("understanding_score" not in s for s in report["students"])
     assert report["hardest_topics"][0]["name"] in {"Sum", "List"}
 
 
@@ -195,8 +200,18 @@ async def test_report_before_end_builds_analytics_on_the_fly(client):
     sid = await create(client)
     r = await client.get(f"/api/sessions/{sid}/report", headers=th(sid))
     assert r.status_code == 200
-    assert r.json()["analytics"]["total_students"] == 0
-    assert r.json()["summary"] == "Session completed."
+    report = r.json()
+    assert report["analytics"] == {
+        "total_students": 0,
+        "total_hints": 0,
+        "help_request_count": 0,
+        "quiz_submitted_count": 0,
+        "quiz_avg_correct_pct": None,
+        "total_large_pastes": 0,
+        "bars": [],
+        "insights": [],
+    }
+    assert report["summary"] == "Session completed."
 
 
 async def test_report_reflects_student_hints_and_status(client):
@@ -207,28 +222,17 @@ async def test_report_reflects_student_hints_and_status(client):
     session.student_by_name("Zed").status = "red"
     r = await client.get(f"/api/sessions/{sid}/report", headers=th(sid))
     report = r.json()
-    # Hints alone are never evidence of what the student understood.
-    assert report["counts"] == {"strong": 0, "mixed": 0, "weak": 0, "no_evidence": 1}
+    assert "counts" not in report
+    assert "percentages" not in report
+    assert report["evidence_note"] == "No evidence yet"
     assert report["students"][0] == {
+        "student_id": session.student_by_name("Zed").student_id,
         "name": "Zed", "hints": 3, "status": "red", "idle_seconds": 0.0,
-        "help_requests": 0, "support_signals": 3, "quiz_score": None,
+        "help_requests": 0, "quiz": None,
     }
-    assert report["analytics"]["critical_students"] == 1
-    assert report["analytics"]["quiz_accuracy"] is None
-    assert report["analytics"]["total_support_signals"] == 3
+    assert report["analytics"]["quiz_avg_correct_pct"] is None
+    assert report["analytics"]["help_request_count"] == 0
     assert session.student_by_name("Zed").to_dict()["quiz_score"] is None
-
-
-async def test_needs_follow_up_bar_counts_flagged_students_without_three_hints(client):
-    sid = await create(client)
-    await client.post(f"/api/sessions/{sid}/join", json={"student_name": "Flagged"})
-    session = session_manager.get_session(sid)
-    session.student_by_name("Flagged").hints_given = 1
-    session.student_by_name("Flagged").status = "red"
-    analytics = (await client.get(f"/api/sessions/{sid}/report", headers=th(sid))).json()["analytics"]
-    assert analytics["critical_students"] == 1
-    bar = next(b for b in analytics["bars"] if b["value"] == 1.0 and "Follow-up" in b["label"])
-    assert bar["label"] == "Needs Follow-up (>=3 hints or flagged)"
 
 
 async def test_support_signals_count_hints_and_explicit_help_requests(client):
@@ -244,9 +248,9 @@ async def test_support_signals_count_hints_and_explicit_help_requests(client):
     assert live["quiz_score"] is None
     assert "understanding_score" not in live
     report = (await client.get(f"/api/sessions/{sid}/report", headers=th(sid))).json()
-    assert report["students"][0]["support_signals"] == 3
-    assert report["analytics"]["total_help_requests"] == 1
-    assert report["analytics"]["avg_support_signals"] == 3.0
+    assert "support_signals" not in report["students"][0]
+    assert report["analytics"]["help_request_count"] == 1
+    assert report["analytics"]["total_hints"] == 2
 
 
 async def test_list_sessions_returns_only_the_callers_session(client):
@@ -552,6 +556,7 @@ async def test_submit_quiz_grades_answers(client):
     answers = {str(i): q["correct"] for i, q in enumerate(quiz)}
     answers["0"] = "ZZZ"  # miss the first one
     await client.post(f"/api/sessions/{sid}/join", json={"student_name": "Ann"})
+    await client.post(f"/api/sessions/{sid}/join", json={"student_name": "Bob"})
     r = await client.post(
         f"/api/sessions/{sid}/submit-quiz",
         json={"student_id": sid_of(sid, "Ann"), "answers": answers},
@@ -568,8 +573,16 @@ async def test_submit_quiz_grades_answers(client):
     assert student.to_dict()["quiz_score"] == body["score"]
     assert student.to_dict()["quiz_correct"] == body["correct"]
     analytics = (await client.get(f"/api/sessions/{sid}/report", headers=th(sid))).json()["analytics"]
-    assert analytics["quiz_submissions"] == 1
-    assert analytics["quiz_accuracy"] == body["score"]
+    assert analytics["quiz_submitted_count"] == 1
+    assert analytics["quiz_avg_correct_pct"] == body["score"]
+    report = (await client.get(f"/api/sessions/{sid}/report", headers=th(sid))).json()
+    assert report["evidence_note"] is None
+    assert report["students"][0]["quiz"] == {
+        "correct": body["correct"],
+        "total": body["total"],
+        "score": body["score"],
+    }
+    assert report["students"][1]["quiz"] is None
 
 
 # ── Input normalisation ───────────────────────────────────────────
@@ -773,6 +786,7 @@ async def test_quiz_results_are_keyed_by_id_and_keep_the_name(client):
     session_manager.reset_cache()
     stored = session_manager.get_session(sid).quiz_results[ann_id]
     assert stored["student_name"] == "Ann"
+    assert isinstance(stored["submitted_at"], float)
 
 
 # ── Teacher review & edit of the generated task ───────────────────
