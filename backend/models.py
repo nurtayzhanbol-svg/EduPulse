@@ -28,6 +28,7 @@ class JoinSessionRequest(BaseModel):
 
 class UpdateTaskRequest(BaseModel):
     task_description: str
+    task_steps: list[str] | None = None
 
 
 class LaunchSessionRequest(BaseModel):
@@ -66,6 +67,11 @@ class TelemetryEvent(BaseModel):
     #   code_update: {"code": "...current code...", "line_count": 12}
 
 
+class MarkStepDoneRequest(BaseModel):
+    student_id: str
+    step: int  # 0-based index into SessionState.task_steps
+
+
 # ── Student State ──────────────────────────────────────────────────
 
 class StudentState:
@@ -85,7 +91,9 @@ class StudentState:
         self.sid = sid  # Socket.IO session id
         self.token_hash: str = ""  # sha256 of the student's bearer token
         self.status: str = "green"  # green | yellow | red
+        # Progress = task steps the student marked done / total steps. Never derived from code size.
         self.progress: float = 0.0
+        self.completed_steps: list[int] = []
         # Quiz correctness — the only direct evidence of what the student knows.
         # quiz_score stays None until the student submits a quiz.
         self.quiz_score: float | None = None
@@ -121,6 +129,20 @@ class StudentState:
         """
         return self.hints_given + len(self.help_requests)
 
+    def mark_step_done(self, step: int, total_steps: int) -> bool:
+        """Record step ``step`` (0-based) as done and refresh progress. False if the index is invalid."""
+        if not isinstance(step, int) or isinstance(step, bool) or step < 0 or step >= total_steps:
+            return False
+        if step not in self.completed_steps:
+            self.completed_steps.append(step)
+            self.completed_steps.sort()
+        self.progress = 100.0 * len(self.completed_steps) / total_steps if total_steps else 0.0
+        return True
+
+    def reset_steps(self) -> None:
+        self.completed_steps = []
+        self.progress = 0.0
+
     def log_event(self, event_type: str, ts: float) -> None:
         self.events.append({"type": event_type, "ts": ts})
         if len(self.events) > self.MAX_EVENTS:
@@ -146,6 +168,7 @@ class StudentState:
             "name": self.name,
             "status": self.status,
             "progress": round(self.progress, 1),
+            "completed_steps": list(self.completed_steps),
             "quiz_score": self.quiz_score,
             "quiz_correct": self.quiz_correct,
             "quiz_total": self.quiz_total,
@@ -203,6 +226,7 @@ class SessionState:
         self.session_id: str = new_session_id()
         self.teacher_token_hash: str = ""
         self.task_description: str = task_description
+        self.task_steps: list[str] = []  # 2-3 numbered steps students tick off; drives progress
         self.task_level: str = level
         self.pause_threshold_seconds: int = pause_threshold_map[level]
         self.quiz_mode_preference: str = "practical"
@@ -241,6 +265,7 @@ class SessionState:
         return {
             "session_id": self.session_id,
             "task_description": self.task_description,
+            "task_steps": list(self.task_steps),
             "task_level": self.task_level,
             "pause_threshold_seconds": self.pause_threshold_seconds,
             "has_material": bool(self.pdf_text or self.pdf_analysis),
@@ -260,6 +285,7 @@ class SessionState:
         return {
             "session_id": self.session_id,
             "task_description": self.task_description,
+            "task_steps": list(self.task_steps),
             "task_level": self.task_level,
             "pause_threshold_seconds": self.pause_threshold_seconds,
             "has_material": bool(self.pdf_text or self.pdf_analysis),

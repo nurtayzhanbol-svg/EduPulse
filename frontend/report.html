@@ -63,6 +63,16 @@ body{font-family:'Source Sans 3',sans-serif;background:var(--cream);color:var(--
 .topic-track{width:110px;height:8px;background:#eff3fb;border:1px solid var(--border);border-radius:5px;overflow:hidden}
 .topic-fill{height:100%;background:linear-gradient(90deg,var(--amber),var(--red))}
 .topic-pct{width:40px;text-align:right;font-size:.75rem;color:var(--text-dim)}
+.stu-table{width:100%;border-collapse:collapse;font-size:.84rem}
+.stu-table th{font-size:.66rem;letter-spacing:.08em;text-transform:uppercase;color:var(--text-dim);text-align:left;padding:.4rem .5rem;border-bottom:1px solid var(--border)}
+.stu-table td{padding:.5rem .5rem;border-bottom:1px solid var(--border-lt);vertical-align:top}
+.stu-table tr:last-child td{border-bottom:none}
+.no-evidence{color:var(--text-dim);font-style:italic}
+.mq-row{padding:.55rem 0;border-bottom:1px solid var(--border-lt)}
+.mq-row:last-child{border-bottom:none}
+.mq-head{font-weight:700;font-size:.84rem}
+.mq-text{font-size:.8rem;color:var(--text-mid);margin-top:2px}
+.mq-action{font-size:.76rem;color:var(--amber);margin-top:2px;font-weight:600}
 .error{background:rgba(255,119,119,.12);border:1px solid rgba(255,119,119,.3);border-radius:10px;padding:1rem;color:var(--red)}
 .empty-state{background:var(--ivory);border:1px solid var(--border);border-radius:13px;padding:2.5rem 1.5rem;text-align:center;box-shadow:var(--shadow);grid-column:1/-1}.empty-state h2{font-family:'Playfair Display',serif;color:var(--navy);font-size:1.25rem;margin:.7rem 0 .4rem}.empty-state p{color:var(--text-mid);font-size:.85rem;line-height:1.6;max-width:480px;margin:0 auto 1rem}.spinner{display:inline-flex;width:14px;height:14px;border:2px solid currentColor;border-right-color:transparent;border-radius:50%;animation:spin .7s linear infinite;vertical-align:-2px}@keyframes spin{to{transform:rotate(360deg)}}
 </style>
@@ -89,7 +99,7 @@ body{font-family:'Source Sans 3',sans-serif;background:var(--cream);color:var(--
 
   <div class="kpi-row">
     <div class="kpi"><div class="kpi-label">Students</div><div class="kpi-val" id="kpiStudents">0</div><div class="kpi-sub">joined session</div></div>
-    <div class="kpi"><div class="kpi-label">Quiz Accuracy</div><div class="kpi-val" id="kpiUnderstanding">—</div><div class="kpi-sub" id="kpiQuizSub">no quiz submitted</div></div>
+    <div class="kpi"><div class="kpi-label">Quiz Accuracy</div><div class="kpi-val" id="kpiQuiz">—</div><div class="kpi-sub" id="kpiQuizSub">no quiz submitted</div></div>
     <div class="kpi"><div class="kpi-label">AI Hints</div><div class="kpi-val" id="kpiHints">0</div><div class="kpi-sub">total delivered</div></div>
     <div class="kpi"><div class="kpi-label">Help Requests</div><div class="kpi-val" id="kpiHelp">0</div><div class="kpi-sub">students asked explicitly</div></div>
     <div class="kpi"><div class="kpi-label">Teacher Nudges</div><div class="kpi-val" id="kpiNudges">0</div><div class="kpi-sub">teacher interventions</div></div>
@@ -97,35 +107,27 @@ body{font-family:'Source Sans 3',sans-serif;background:var(--cream);color:var(--
   </div>
 
   <div class="fb-grid">
-    <div class="fb"><div class="fb-val" style="color:var(--teal)" id="fbMastered">0</div><div class="fb-title">Strong</div><div class="fb-desc">quiz score 80%+.</div></div>
-    <div class="fb"><div class="fb-val" style="color:var(--amber)" id="fbPartial">0</div><div class="fb-title">Mixed</div><div class="fb-desc">quiz score 50-79%.</div></div>
-    <div class="fb"><div class="fb-val" style="color:var(--red)" id="fbStruggling">0</div><div class="fb-title">Weak</div><div class="fb-desc">quiz score below 50%.</div></div>
+    <div class="fb"><div class="fb-val" style="color:var(--teal)" id="fbSubmitted">0</div><div class="fb-title">Quiz submitted</div><div class="fb-desc">students with correctness evidence.</div></div>
+    <div class="fb"><div class="fb-val" style="color:var(--amber)" id="fbNoEvidence">0</div><div class="fb-title">No evidence yet</div><div class="fb-desc">no quiz submission recorded.</div></div>
+    <div class="fb"><div class="fb-val" style="color:var(--navy)" id="fbStepsDone">0</div><div class="fb-title">Finished all steps</div><div class="fb-desc" id="fbStepsDesc">task steps marked done.</div></div>
   </div>
 
   <div class="insight" id="insightBox"><span class="spinner"></span> Loading report…</div>
 
   <div class="grid" style="margin-top:.9rem">
     <div class="card">
-      <div class="card-head"><div class="card-title">Quiz Breakdown</div><div style="font-size:.72rem;color:var(--text-dim)">by quiz correctness</div></div>
+      <div class="card-head"><div class="card-title">Students</div><div style="font-size:.72rem;color:var(--text-dim)">quiz correctness is the evidence; hints and help are support context</div></div>
       <div class="card-body">
-        <div class="u-row"><div class="u-label">Strong (80%+)</div><div class="u-track"><div id="uMastered" class="u-fill" style="width:0;background:var(--teal)">0%</div></div><div class="u-pct" id="uMasteredPct">0%</div></div>
-        <div class="u-row"><div class="u-label">Mixed (50-79%)</div><div class="u-track"><div id="uPartial" class="u-fill" style="width:0;background:var(--amber)">0%</div></div><div class="u-pct" id="uPartialPct">0%</div></div>
-        <div class="u-row"><div class="u-label">Weak (&lt;50%)</div><div class="u-track"><div id="uStruggling" class="u-fill" style="width:0;background:var(--red)">0%</div></div><div class="u-pct" id="uStrugglingPct">0%</div></div>
-        <div class="u-row"><div class="u-label">No quiz evidence</div><div class="u-track"><div id="uIncomplete" class="u-fill" style="width:0;background:#7f8cb7">0%</div></div><div class="u-pct" id="uIncompletePct">0%</div></div>
-        <div style="margin-top:.8rem;font-size:.74rem;color:var(--text-dim)">Confusion timeline (4-minute windows)</div>
+        <div id="studentsBody"></div>
+        <div style="margin-top:.8rem;font-size:.74rem;color:var(--text-dim)">Help requests over time (4-minute windows)</div>
         <div id="timelineBars" class="timeline-bars"></div>
         <div id="timelineAxis" class="timeline-axis"></div>
       </div>
     </div>
     <div class="card">
-      <div class="card-head"><div class="card-title">Hardest Topics</div><div style="font-size:.72rem;color:var(--text-dim)">from class signals</div></div>
-      <div class="card-body" id="topicsBody"></div>
+      <div class="card-head"><div class="card-title">Most-missed Questions</div><div style="font-size:.72rem;color:var(--text-dim)">from quiz answers</div></div>
+      <div class="card-body" id="missedBody"></div>
     </div>
-  </div>
-
-  <div class="card" style="margin-top:.9rem">
-    <div class="card-head"><div class="card-title">Students</div><div style="font-size:.72rem;color:var(--text-dim)">quiz evidence and support signals</div></div>
-    <div class="card-body" id="studentsBody"></div>
   </div>
 
   <div id="errorBox" role="alert" class="error" style="display:none;margin-top:1rem"></div>
@@ -149,7 +151,8 @@ function setKpis(report){
   const a = report.analytics || {};
   byId('kpiStudents').textContent = a.total_students ?? 0;
   const acc = (a.quiz_avg_correct_pct === null || a.quiz_avg_correct_pct === undefined) ? null : Math.round(a.quiz_avg_correct_pct);
-  byId('kpiUnderstanding').textContent = acc === null ? '—' : `${acc}%`;
+  byId('kpiQuiz').textContent = acc === null ? 'No evidence yet' : `${acc}%`;
+  if (acc === null) byId('kpiQuiz').style.fontSize = '1rem';
   byId('kpiQuizSub').textContent = acc === null
     ? 'no quiz submitted'
     : `${a.quiz_submitted_count ?? 0}/${a.total_students ?? 0} submitted`;
@@ -160,58 +163,46 @@ function setKpis(report){
   byId('kpiCritical').textContent = students.filter((s) => s.status && s.status !== 'green').length;
 }
 
-// The report payload carries a per-student table; the buckets are derived here.
-function quizBuckets(report){
-  const students = Array.isArray(report.students) ? report.students : [];
-  const counts = { strong: 0, mixed: 0, weak: 0, no_evidence: 0 };
-  students.forEach((s) => {
-    const q = s.quiz;
-    if (!q || !q.total) { counts.no_evidence++; return; }
-    const pct = (Number(q.correct) / Number(q.total)) * 100;
-    if (pct >= 80) counts.strong++;
-    else if (pct >= 50) counts.mixed++;
-    else counts.weak++;
-  });
-  const total = students.length;
-  const pct = (n) => (total ? Math.round((n / total) * 100) : 0);
-  return {
-    counts,
-    total,
-    percentages: {
-      strong: pct(counts.strong),
-      mixed: pct(counts.mixed),
-      weak: pct(counts.weak),
-      no_evidence: pct(counts.no_evidence),
-    },
-  };
-}
+function esc(s){ const d = document.createElement('div'); d.textContent = s == null ? '' : String(s); return d.innerHTML; }
 
 function setFeedbackCards(report){
-  const c = quizBuckets(report).counts;
-  byId('fbMastered').textContent = c.strong;
-  byId('fbPartial').textContent = c.mixed;
-  byId('fbStruggling').textContent = c.weak;
+  const students = Array.isArray(report.students) ? report.students : [];
+  const submitted = students.filter(s => s.quiz && s.quiz.score !== null && s.quiz.score !== undefined).length;
+  const nSteps = Array.isArray(report.task_steps) ? report.task_steps.length : 0;
+  const allSteps = nSteps ? students.filter(s => Number(s.steps_done || 0) >= nSteps).length : 0;
+  byId('fbSubmitted').textContent = submitted;
+  byId('fbNoEvidence').textContent = students.length - submitted;
+  byId('fbStepsDone').textContent = nSteps ? allSteps : '—';
+  byId('fbStepsDesc').textContent = nSteps ? `all ${nSteps} task steps marked done.` : 'this task had no steps.';
+}
+
+function setStudentsTable(report){
+  const students = Array.isArray(report.students) ? report.students : [];
+  const body = byId('studentsBody');
+  if (!students.length) { body.textContent = 'No students joined this session.'; return; }
+  const rows = students.map(s => {
+    const q = s.quiz;
+    const quizCell = (q && q.score !== null && q.score !== undefined)
+      ? `<strong>${Math.round(q.score)}%</strong> <span style="color:var(--text-dim)">(${q.correct}/${q.total})</span>`
+      : '<span class="no-evidence">No evidence yet</span>';
+    const steps = s.steps_total ? `${s.steps_done} / ${s.steps_total}` : '—';
+    return `<tr>
+      <td>${esc(s.name)}</td>
+      <td>${quizCell}</td>
+      <td>${steps}</td>
+      <td>${s.help_requests || 0}</td>
+      <td>${s.hints || 0}</td>
+      <td>${esc(s.status || '-')}</td>
+    </tr>`;
+  }).join('');
+  body.innerHTML = `<table class="stu-table"><thead><tr><th>Student</th><th>Quiz</th><th>Steps done</th><th>Asked for help</th><th>Hints</th><th>Status</th></tr></thead><tbody>${rows}</tbody></table>`;
 }
 
 function setInsight(report){
   const ins = (report.analytics && Array.isArray(report.analytics.insights)) ? report.analytics.insights : [];
-  const first = ins.length ? ins[0] : (report.summary || 'No summary available.');
-  byId('insightBox').textContent = first;
-}
-
-function setBreakdown(report){
-  const p = quizBuckets(report).percentages;
-  const rows = [
-    ['Strong', p.strong || 0, 'uMastered'],
-    ['Mixed', p.mixed || 0, 'uPartial'],
-    ['Weak', p.weak || 0, 'uStruggling'],
-    ['No quiz evidence', p.no_evidence || 0, 'uIncomplete'],
-  ];
-  rows.forEach(([name, val, id]) => {
-    byId(id).style.width = `${val}%`;
-    byId(id).textContent = `${val}%`;
-    byId(`${id}Pct`).textContent = `${val}%`;
-  });
+  const text = report.summary || (ins.length ? ins[0] : 'No summary available.');
+  byId('insightBox').style.whiteSpace = 'pre-line';
+  byId('insightBox').textContent = text;
 }
 
 function setTimeline(report){
@@ -222,14 +213,14 @@ function setTimeline(report){
   barsEl.innerHTML = '';
   axisEl.innerHTML = '';
   const maxV = Math.max(1, ...data);
-  if (!data.length || data.every(v => Number(v) === 0)) { barsEl.textContent = 'No confusion events.'; axisEl.textContent = ''; return; }
-  barsEl.setAttribute('role','img'); barsEl.setAttribute('aria-label','Confusion events over time');
+  if (!data.length || data.every(v => Number(v) === 0)) { barsEl.textContent = 'No help requests.'; axisEl.textContent = ''; return; }
+  barsEl.setAttribute('role','img'); barsEl.setAttribute('aria-label','Help requests over time');
   data.forEach((v, i) => {
     const pct = Math.max(4, Math.round((v / maxV) * 100));
     const col = v <= 1 ? 'var(--teal)' : (v <= 4 ? 'var(--amber)' : 'var(--red)');
     const d = document.createElement('div');
     d.className = 'tbar';
-    d.title = `${v} confusion events at ${labels[i] || 0}m`; d.setAttribute('aria-label', d.title);
+    d.title = `${v} help request(s) at ${labels[i] || 0}m`; d.setAttribute('aria-label', d.title);
     d.style.height = `${pct}%`;
     d.style.background = col;
     barsEl.appendChild(d);
@@ -241,62 +232,31 @@ function setTimeline(report){
   });
 }
 
-function setTopics(report){
-  const topics = Array.isArray(report.hardest_topics) ? report.hardest_topics : [];
-  const body = byId('topicsBody');
+function setMissedQuestions(report){
+  const missed = Array.isArray(report.missed_questions) ? report.missed_questions : [];
+  const body = byId('missedBody');
   body.innerHTML = '';
-  if (!topics.length) { body.textContent = 'No confusion signals recorded.'; return; }
-  topics.forEach((t) => {
+  if (!missed.length) {
+    const anyQuiz = Array.isArray(report.quiz_results) && report.quiz_results.length > 0;
+    body.textContent = anyQuiz ? 'Every submitted answer was correct.' : 'No quiz submitted — no evidence yet.';
+    return;
+  }
+  missed.forEach((m) => {
     const row = document.createElement('div');
-    row.className = 'topic-row';
+    row.className = 'mq-row';
     row.innerHTML = `
-      <div class="topic-name">${t.name}</div>
-      <div class="topic-track"><div class="topic-fill" style="width:${t.pct}%"></div></div>
-      <div class="topic-pct">${t.pct}%</div>
+      <div class="mq-head">Q${m.index} missed by ${m.missed} of ${m.submitted}</div>
+      <div class="mq-text">${esc(m.question)}</div>
+      <div class="mq-action">Re-teach this before moving on.</div>
     `;
     body.appendChild(row);
   });
-}
-
-function setStudents(report){
-  const students = Array.isArray(report.students) ? report.students : [];
-  const body = byId('studentsBody');
-  body.innerHTML = '';
-  if (!students.length) { body.textContent = 'No students joined this session.'; return; }
-  const table = document.createElement('table');
-  table.style.width = '100%';
-  table.style.borderCollapse = 'collapse';
-  table.style.fontSize = '.8rem';
-  table.innerHTML = '<thead><tr>'
-    + ['Student', 'Quiz', 'Help requests', 'Hints', 'Status']
-      .map((h) => `<th style="text-align:left;padding:.35rem .5rem;color:var(--text-dim);font-weight:600">${h}</th>`)
-      .join('')
-    + '</tr></thead>';
-  const tbody = document.createElement('tbody');
-  students.forEach((s) => {
-    const q = s.quiz;
-    const quizText = (q && q.total)
-      ? `${q.correct}/${q.total} (${Math.round((Number(q.correct) / Number(q.total)) * 100)}%)`
-      : 'no evidence';
-    const tr = document.createElement('tr');
-    [s.name, quizText, s.help_requests ?? 0, s.hints ?? 0, s.status || '-'].forEach((val) => {
-      const td = document.createElement('td');
-      td.style.padding = '.35rem .5rem';
-      td.style.borderTop = '1px solid rgba(255,255,255,.07)';
-      td.textContent = String(val);
-      tr.appendChild(td);
-    });
-    tbody.appendChild(tr);
-  });
-  table.appendChild(tbody);
-  body.appendChild(table);
 }
 
 function hideReportSections() {
   document.querySelector('.kpi-row').style.display = 'none';
   document.querySelector('.fb-grid').style.display = 'none';
   document.querySelector('.grid').style.display = 'none';
-  byId('studentsBody').closest('.card').style.display = 'none';
 }
 
 function showEmptyState(report) {
@@ -307,7 +267,6 @@ function showEmptyState(report) {
   document.querySelector('.fb-grid').innerHTML = '<div class="empty-state"><svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="var(--teal)" stroke-width="1.5"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg><h2>No activity was recorded in this session</h2><p>No students joined or no work was submitted, so there is nothing to analyse. Start a new session from the dashboard.</p><a class="btn" href="teacher.html">Back to Dashboard</a></div>';
   document.querySelector('.grid').innerHTML = '';
   document.querySelector('.kpi-row').style.display = 'none';
-  byId('studentsBody').closest('.card').style.display = 'none';
   byId('insightBox').style.display = 'none';
 }
 
@@ -338,10 +297,9 @@ async function init(){
     setKpis(report);
     setFeedbackCards(report);
     setInsight(report);
-    setBreakdown(report);
+    setStudentsTable(report);
     setTimeline(report);
-    setTopics(report);
-    setStudents(report);
+    setMissedQuestions(report);
     showEmptyState(report);
     document.querySelector('.page').setAttribute('aria-busy','false');
   } catch (e) {

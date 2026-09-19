@@ -166,7 +166,11 @@ async def test_full_happy_path(client):
     assert [s["name"] for s in report["students"]] == ["Alice", "Bob"]
     assert all(s["quiz"] is None for s in report["students"])
     assert all("understanding_score" not in s for s in report["students"])
-    assert report["hardest_topics"][0]["name"] in {"Sum", "List"}
+    assert "hardest_topics" not in report
+    assert report["missed_questions"] == []
+    assert "none yet" in ended["summary"]
+    assert "confused" not in ended["summary"].lower()
+    assert "Nobody asked for help" in ended["summary"]
 
 
 async def test_join_is_idempotent_per_name_with_token(client):
@@ -238,6 +242,7 @@ async def test_report_reflects_student_hints_and_status(client):
         "student_id": session.student_by_name("Zed").student_id,
         "name": "Zed", "hints": 3, "status": "red", "idle_seconds": 0.0,
         "help_requests": 0, "teacher_nudges": 0, "quiz": None,
+        "steps_done": 0, "steps_total": 0, "progress": 0.0,
     }
     assert report["analytics"]["quiz_avg_correct_pct"] is None
     assert report["analytics"]["help_request_count"] == 0
@@ -515,6 +520,8 @@ async def test_create_from_pdf_returns_session_and_task(client):
     assert len(body["teacher_token"]) >= 32
     assert body["task_description"].startswith("Task:")
     assert body["task_description"].count("\n") == 3  # Task / Input / Output / Edge Case
+    assert 2 <= len(body["task_steps"]) <= 3
+    assert all(isinstance(s, str) and s for s in body["task_steps"])
     assert body["filename"] == "lesson.pdf"
     assert body["pages"] == 1
     assert body["word_count"] >= 60
@@ -528,6 +535,7 @@ async def test_create_from_pdf_returns_session_and_task(client):
     assert state["pause_threshold_seconds"] == 120
     assert state["has_material"] is True
     assert state["task_description"] == body["task_description"]
+    assert state["task_steps"] == body["task_steps"]
 
 
 async def test_create_from_pdf_theoretical_mode(client):
@@ -594,6 +602,172 @@ async def test_submit_quiz_grades_answers(client):
         "score": body["score"],
     }
     assert report["students"][1]["quiz"] is None
+    assert report["missed_questions"] == [
+        {"index": 1, "question": quiz[0]["question"], "missed": 1, "submitted": 1},
+    ]
+
+
+# ── Task steps & progress ─────────────────────────────────────────
+
+
+async def pdf_session_with_students(client, *names: str) -> str:
+    r = await client.post(
+        "/api/sessions/create-from-pdf",
+        files={"file": ("lesson.pdf", make_pdf(LONG_PARAGRAPHS), "application/pdf")},
+    )
+    sid = r.json()["session_id"]
+    await launch(client, sid)
+    for name in names:
+        await client.post(f"/api/sessions/{sid}/join", json={"student_name": name, "consent": True})
+    return sid
+
+
+async def test_marking_steps_done_drives_progress(client):
+    sid = await pdf_session_with_students(client, "Ann")
+    steps = session_manager.get_session(sid).task_steps
+    n = len(steps)
+    ann = sid_of(sid, "Ann")
+
+    r = await client.post(f"/api/sessions/{sid}/steps/done", json={"student_id": ann, "step": 0}, headers=sh(sid, "Ann"))
+    assert r.status_code == 200, r.text
+    assert r.json() == {"completed_steps": [0], "total_steps": n, "progress": round(100 / n, 1)}
+
+    # idempotent
+    r = await client.post(f"/api/sessions/{sid}/steps/done", json={"student_id": ann, "step": 0}, headers=sh(sid, "Ann"))
+    assert r.json()["completed_steps"] == [0]
+
+    for i in range(1, n):
+        await client.post(f"/api/sessions/{sid}/steps/done", json={"student_id": ann, "step": i}, headers=sh(sid, "Ann"))
+    state = (await client.get(f"/api/sessions/{sid}", headers=th(sid))).json()["students"][ann]
+    assert state["progress"] == 100.0
+    assert state["completed_steps"] == list(range(n))
+
+
+async def test_marking_an_unknown_step_is_400(client):
+    sid = await pdf_session_with_students(client, "Ann")
+    n = len(session_manager.get_session(sid).task_steps)
+    for bad in (n, -1):
+        r = await client.post(
+            f"/api/sessions/{sid}/steps/done", json={"student_id": sid_of(sid, "Ann"), "step": bad}, headers=sh(sid, "Ann"),
+        )
+        assert r.status_code == 400
+    assert stu(sid, "Ann").progress == 0.0
+
+
+async def test_marking_a_step_requires_the_students_own_token(client):
+    sid = await pdf_session_with_students(client, "Ann", "Bob")
+    r = await client.post(f"/api/sessions/{sid}/steps/done", json={"student_id": sid_of(sid, "Ann"), "step": 0})
+    assert r.status_code == 401
+    r = await client.post(
+        f"/api/sessions/{sid}/steps/done", json={"student_id": sid_of(sid, "Ann"), "step": 0}, headers=sh(sid, "Bob"),
+    )
+    assert r.status_code == 403
+    assert stu(sid, "Ann").progress == 0.0
+
+
+async def test_marking_a_step_after_the_session_ended_is_409(client):
+    sid = await pdf_session_with_students(client, "Ann")
+    await client.post(f"/api/sessions/{sid}/end", headers=th(sid))
+    r = await client.post(f"/api/sessions/{sid}/steps/done", json={"student_id": sid_of(sid, "Ann"), "step": 0}, headers=sh(sid, "Ann"))
+    assert r.status_code == 409
+
+
+async def test_session_without_steps_has_no_progress_to_mark(client):
+    sid = await create(client)
+    await client.post(f"/api/sessions/{sid}/join", json={"student_name": "Ann", "consent": True})
+    r = await client.post(f"/api/sessions/{sid}/steps/done", json={"student_id": sid_of(sid, "Ann"), "step": 0}, headers=sh(sid, "Ann"))
+    assert r.status_code == 400
+
+
+async def test_completed_steps_survive_a_restart(client):
+    sid = await pdf_session_with_students(client, "Ann")
+    await client.post(f"/api/sessions/{sid}/steps/done", json={"student_id": sid_of(sid, "Ann"), "step": 1}, headers=sh(sid, "Ann"))
+    steps = session_manager.get_session(sid).task_steps
+    session_manager.reset_cache()
+    session = session_manager.get_session(sid)
+    assert session.task_steps == steps
+    ann = session.student_by_name("Ann")
+    assert ann.completed_steps == [1]
+    assert ann.progress == 100 / len(steps)
+
+
+async def test_editing_the_steps_resets_student_progress(client):
+    sid = await pdf_session_with_students(client, "Ann")
+    await client.post(f"/api/sessions/{sid}/steps/done", json={"student_id": sid_of(sid, "Ann"), "step": 0}, headers=sh(sid, "Ann"))
+    r = await client.patch(
+        f"/api/sessions/{sid}/task",
+        json={"task_description": "Task: new", "task_steps": ["Do A", "  Do B ", "", "Do C", "Do D"]},
+        headers=th(sid),
+    )
+    assert r.status_code == 200
+    assert r.json()["task_steps"] == ["Do A", "Do B", "Do C"]
+    assert stu(sid, "Ann").completed_steps == []
+    assert stu(sid, "Ann").progress == 0.0
+
+
+async def test_report_progress_comes_from_steps(client):
+    sid = await pdf_session_with_students(client, "Ann")
+    n = len(session_manager.get_session(sid).task_steps)
+    await client.post(f"/api/sessions/{sid}/steps/done", json={"student_id": sid_of(sid, "Ann"), "step": 0}, headers=sh(sid, "Ann"))
+    report = (await client.get(f"/api/sessions/{sid}/report", headers=th(sid))).json()
+    row = report["students"][0]
+    assert (row["steps_done"], row["steps_total"]) == (1, n)
+    assert row["progress"] == round(100 / n, 1)
+
+
+# ── Evidence-based summary ────────────────────────────────────────
+
+
+async def submit(client, sid: str, name: str, answers: dict) -> None:
+    r = await client.post(
+        f"/api/sessions/{sid}/submit-quiz", json={"student_id": sid_of(sid, name), "answers": answers}, headers=sh(sid, name),
+    )
+    assert r.status_code == 200, r.text
+
+
+async def test_summary_names_quiz_scores_help_askers_and_missed_questions(client):
+    sid = await pdf_session_with_students(client, "Ann", "Bob", "Cid")
+    quiz = (await client.post(f"/api/sessions/{sid}/generate-quiz", headers=th(sid))).json()["questions"]
+    right = {str(i): q["correct"] for i, q in enumerate(quiz)}
+    await submit(client, sid, "Ann", right)
+    await submit(client, sid, "Bob", {**right, "1": "ZZZ"})
+    await submit(client, sid, "Cid", {**right, "1": "ZZZ", "0": "ZZZ"})
+    session = session_manager.get_session(sid)
+    session.student_by_name("Bob").help_requests.append("how do I start?")
+    session.student_by_name("Cid").hints_given = 3  # hints alone must not label anyone
+    session.student_by_name("Cid").idle_seconds = 400
+
+    summary = (await client.post(f"/api/sessions/{sid}/end", headers=th(sid))).json()["summary"]
+    assert "3 of 3 students submitted" in summary
+    assert f"- Ann: {len(quiz)}/{len(quiz)} correct (100%)" in summary
+    assert "Q2 missed by 2 of 3 — re-teach: " in summary
+    assert "Q1 missed by 1 of 3 — re-teach: " in summary
+    assert summary.index("Q2 missed") < summary.index("Q1 missed")
+    assert "Asked for help: Bob (1)." in summary
+    assert "Cid" not in summary.split("Asked for help")[1]
+    for banned in ("confused", "struggl", "understanding", "mastery"):
+        assert banned not in summary.lower()
+
+    report = (await client.get(f"/api/sessions/{sid}/report", headers=th(sid))).json()
+    assert report["missed_questions"][0] == {"index": 2, "question": quiz[1]["question"], "missed": 2, "submitted": 3}
+    assert report["missed_questions"][1]["index"] == 1
+    assert report["summary"] == summary
+
+
+async def test_summary_marks_students_without_a_quiz_as_no_evidence(client):
+    sid = await pdf_session_with_students(client, "Ann", "Bob")
+    quiz = (await client.post(f"/api/sessions/{sid}/generate-quiz", headers=th(sid))).json()["questions"]
+    await submit(client, sid, "Ann", {str(i): q["correct"] for i, q in enumerate(quiz)})
+    summary = (await client.post(f"/api/sessions/{sid}/end", headers=th(sid))).json()["summary"]
+    assert "1 of 2 students submitted" in summary
+    assert "- Bob: no quiz submitted (no evidence yet)" in summary
+    assert "Most-missed" not in summary
+
+
+async def test_summary_with_no_students(client):
+    sid = await create(client)
+    summary = (await client.post(f"/api/sessions/{sid}/end", headers=th(sid))).json()["summary"]
+    assert "no evidence" in summary.lower()
 
 
 # ── Input normalisation ───────────────────────────────────────────

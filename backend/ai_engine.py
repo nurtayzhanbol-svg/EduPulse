@@ -595,7 +595,7 @@ def _mock_summary(session: SessionState, student_data: list[dict]) -> str:
 ## Student Breakdown
 """
     if not graded:
-        report += "\nNo quiz was submitted, so this session has no direct evidence of understanding.\n"
+        report += "\nNo quiz was submitted, so this session has no correctness evidence yet.\n"
 
     if excelling:
         report += f"\n### 🌟 Answered correctly ({len(excelling)} students)\n"
@@ -884,6 +884,10 @@ async def analyze_pdf_content(pdf_text: str, task_description: str = "", session
         return _mock_pdf_analysis(pdf_text)
 
 
+MIN_TASK_STEPS = 2
+MAX_TASK_STEPS = 3
+
+
 async def generate_task_description_from_pdf(
     pdf_text: str,
     mode: str = "practical",
@@ -891,6 +895,17 @@ async def generate_task_description_from_pdf(
     session_id: str | None = None,
 ) -> str:
     """Generate a concise class task description from PDF material."""
+    description, _ = await generate_task_from_pdf(pdf_text, mode, difficulty, session_id)
+    return description
+
+
+async def generate_task_from_pdf(
+    pdf_text: str,
+    mode: str = "practical",
+    difficulty: str = "medium",
+    session_id: str | None = None,
+) -> tuple[str, list[str]]:
+    """Generate a task description plus 2-3 numbered steps students tick off as they work."""
     client = _get_client(session_id)
     normalized_mode = "theoretical" if str(mode).lower() == "theoretical" else "practical"
     normalized_difficulty = str(difficulty).lower()
@@ -898,7 +913,8 @@ async def generate_task_description_from_pdf(
         normalized_difficulty = "medium"
 
     if client is None:
-        return _mock_task_description(pdf_text, normalized_mode, normalized_difficulty)
+        description = _mock_task_description(pdf_text, normalized_mode, normalized_difficulty)
+        return description, task_steps_from_description(description)
 
     prompt = f"""Create one concise lab task description from this class material.
 
@@ -914,6 +930,11 @@ Rules:
   Input: ...
   Output: ...
   Edge Case: ...
+- Then add 2 or 3 short numbered steps a student completes in order to finish the task:
+  Step 1: ...
+  Step 2: ...
+  Step 3: ...
+- Each step must be a concrete, checkable action (not "think about" or "understand").
 - Keep each line under 120 characters.
 - Do not include markdown, bullets, emojis, or extra notes.
 
@@ -926,18 +947,66 @@ Material:
             client,
             "You create high-quality classroom tasks grounded in the provided material.",
             prompt,
-            max_tokens=280,
+            max_tokens=380,
             temperature=0.4,
             operation="task-generation",
             session_id=session_id,
         )
         task = (response.choices[0].message.content or "").strip()
         if not task:
-            return _mock_task_description(pdf_text, normalized_mode, normalized_difficulty)
-        return _normalize_task_description(task, normalized_mode, pdf_text)
+            description = _mock_task_description(pdf_text, normalized_mode, normalized_difficulty)
+            return description, task_steps_from_description(description)
+        description = _normalize_task_description(task, normalized_mode, pdf_text)
+        steps = parse_task_steps(task)
+        if len(steps) < MIN_TASK_STEPS:
+            steps = task_steps_from_description(description)
+        return description, steps
     except Exception as e:
         _handle_ai_exception(e, "Task description generation")
-        return _mock_task_description(pdf_text, normalized_mode, normalized_difficulty)
+        description = _mock_task_description(pdf_text, normalized_mode, normalized_difficulty)
+        return description, task_steps_from_description(description)
+
+
+def parse_task_steps(raw: str) -> list[str]:
+    """Pull ``Step N: ...`` lines out of model output, in order, capped at MAX_TASK_STEPS."""
+    steps: list[str] = []
+    for ln in (raw or "").splitlines():
+        m = re.match(r"^\s*(?:step\s*)?(\d+)\s*[:.)-]\s*(.+)$", ln.strip(), flags=re.IGNORECASE)
+        if not m:
+            continue
+        text = re.sub(r"\s+", " ", m.group(2)).strip()
+        if text:
+            steps.append(text[:130])
+    return steps[:MAX_TASK_STEPS]
+
+
+def task_steps_from_description(description: str) -> list[str]:
+    """Deterministic steps derived from the Task / Input / Output / Edge Case lines.
+
+    Used in mock mode and whenever the model does not return usable steps, so every
+    session has a step list for students to tick off.
+    """
+    parts: dict[str, str] = {}
+    for ln in (description or "").splitlines():
+        if ":" not in ln:
+            continue
+        key, value = ln.split(":", 1)
+        parts[key.strip().lower()] = value.strip()
+    steps: list[str] = []
+    if parts.get("input"):
+        steps.append(f"Read the input: {parts['input']}")
+    if parts.get("task"):
+        steps.append(f"Implement the core logic: {parts['task']}")
+    elif parts.get("output"):
+        steps.append(f"Produce the output: {parts['output']}")
+    if parts.get("edge case"):
+        steps.append(f"Handle the edge case: {parts['edge case']}")
+    if len(steps) < MIN_TASK_STEPS:
+        steps = [
+            "Write a first version that solves the main case.",
+            "Test it on one example and fix anything that is wrong.",
+        ]
+    return [s[:130] for s in steps[:MAX_TASK_STEPS]]
 
 
 def _mock_task_description(pdf_text: str, mode: str, difficulty: str) -> str:

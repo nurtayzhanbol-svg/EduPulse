@@ -5,7 +5,6 @@ import asyncio
 import math
 from contextlib import asynccontextmanager
 import os
-import re
 from pathlib import Path
 from typing import Optional
 from datetime import datetime
@@ -19,6 +18,7 @@ from models import (
     CreateSessionRequest, CreateSessionResponse,
     JoinSessionRequest, EndSessionResponse, TelemetryEvent,
     UpdateTaskRequest, LaunchSessionRequest, NudgeRequest, ConfirmPasteSignalRequest,
+    MarkStepDoneRequest,
 )
 import session_manager
 from auth import bearer_token, require_student, require_teacher, token_matches
@@ -28,7 +28,8 @@ from ai_engine import (
     generate_hint,
     generate_quiz,
     analyze_pdf_content,
-    generate_task_description_from_pdf,
+    generate_task_from_pdf,
+    MAX_TASK_STEPS,
 )
 from pdf_engine import extract_text_from_pdf, max_upload_bytes, save_upload_to_tempfile
 
@@ -204,6 +205,92 @@ def _build_session_analytics(session) -> dict:
     }
 
 
+def _missed_questions(session, quiz_results: dict) -> list[dict]:
+    """Per quiz question: how many submitting students got it wrong, most-missed first.
+
+    Only questions at least one student missed are returned; the list is empty when
+    nobody has submitted a quiz, so callers must not present it as evidence then.
+    """
+    submitted = [e for e in quiz_results.values() if isinstance(e.get("results"), list)]
+    if not submitted:
+        return []
+    questions = list(getattr(session, "quiz", None) or [])
+    n_questions = max([len(questions)] + [len(e["results"]) for e in submitted])
+    rows = []
+    for idx in range(n_questions):
+        missed = 0
+        text = questions[idx].get("question", "") if idx < len(questions) else ""
+        for entry in submitted:
+            results = entry["results"]
+            if idx >= len(results):
+                continue
+            if not text:
+                text = results[idx].get("question", "")
+            if not results[idx].get("is_correct"):
+                missed += 1
+        if missed:
+            rows.append({
+                "index": idx + 1,
+                "question": text,
+                "missed": missed,
+                "submitted": len(submitted),
+            })
+    rows.sort(key=lambda r: (-r["missed"], r["index"]))
+    return rows
+
+
+def _build_session_summary(session, analytics: dict, missed: list[dict]) -> str:
+    """Plain-text, evidence-based end-of-session summary.
+
+    Only names two kinds of facts: quiz correctness (what students actually got right
+    or wrong) and explicit help requests (students who asked). Hints and idle time
+    are never turned into a judgement about a student.
+    """
+    students = list(session.students.values())
+    total = len(students)
+    lines: list[str] = []
+    if total == 0:
+        return "Session ended. No students joined, so there is no evidence to report."
+
+    submitted = analytics.get("quiz_submitted_count", 0)
+    avg = analytics.get("quiz_avg_correct_pct")
+    if submitted and avg is not None:
+        lines.append(f"Quiz evidence: {submitted} of {total} students submitted; average {avg:g}% correct.")
+        for s in sorted(students, key=lambda s: (s.quiz_score is None, -(s.quiz_score or 0), s.name)):
+            if s.quiz_score is None:
+                lines.append(f"- {s.name}: no quiz submitted (no evidence yet)")
+            else:
+                lines.append(f"- {s.name}: {s.quiz_correct}/{s.quiz_total} correct ({s.quiz_score:g}%)")
+    else:
+        lines.append(
+            f"Quiz evidence: none yet — none of the {total} students submitted a quiz, "
+            "so there is no correctness evidence for this session."
+        )
+
+    if missed:
+        lines.append("Most-missed quiz questions:")
+        for row in missed[:3]:
+            topic = (row["question"] or "this question").strip()
+            if len(topic) > 80:
+                topic = topic[:77].rstrip() + "..."
+            lines.append(
+                f"- Q{row['index']} missed by {row['missed']} of {row['submitted']} — re-teach: {topic}"
+            )
+
+    askers = [s for s in students if s.help_requests]
+    if askers:
+        names = ", ".join(f"{s.name} ({len(s.help_requests)})" for s in sorted(askers, key=lambda s: s.name))
+        lines.append(f"Asked for help: {names}. Check in with them first next lesson.")
+    else:
+        lines.append("Nobody asked for help explicitly.")
+
+    if getattr(session, "task_steps", None):
+        n_steps = len(session.task_steps)
+        finished = sum(1 for s in students if len(s.completed_steps) >= n_steps)
+        lines.append(f"Task steps: {finished} of {total} students marked all {n_steps} steps done.")
+    return "\n".join(lines)
+
+
 def _build_report_payload(session) -> dict:
     quiz_results = _normalize_quiz_results(session)
     analytics = getattr(session, "analytics", None) or _build_session_analytics(session)
@@ -228,31 +315,8 @@ def _build_report_payload(session) -> dict:
             timeline_data[idx] += 1
     timeline_labels = [str(i * 4) for i in range(bucket_count)]
 
-    stopwords = {
-        "the", "and", "for", "with", "from", "that", "this", "what", "when", "where", "while", "into",
-        "need", "help", "why", "how", "dont", "cant", "not", "does", "did", "are", "was", "were", "about",
-        "task", "class", "material", "code", "line", "function", "python", "student",
-    }
-    topic_counts: dict[str, int] = {}
-    for s in students:
-        for msg in getattr(s, "help_requests", []):
-            for token in re.findall(r"[a-zA-Z][a-zA-Z0-9_+-]{2,}", (msg or "").lower()):
-                if token in stopwords:
-                    continue
-                topic_counts[token] = topic_counts.get(token, 0) + 1
-    if not topic_counts:
-        for token in re.findall(r"[a-zA-Z][a-zA-Z0-9_+-]{2,}", (session.task_description or "").lower()):
-            if token in stopwords:
-                continue
-            topic_counts[token] = topic_counts.get(token, 0) + 1
-
-    total_topic = max(1, sum(topic_counts.values()))
-    hardest_topics = [
-        {"name": k.replace("_", " ").title(), "pct": int(round((v / total_topic) * 100))}
-        for k, v in sorted(topic_counts.items(), key=lambda kv: kv[1], reverse=True)[:5]
-    ]
-    if not hardest_topics:
-        hardest_topics = [{"name": "Core Task Logic", "pct": 100}]
+    missed_questions = _missed_questions(session, quiz_results)
+    n_steps = len(getattr(session, "task_steps", None) or [])
 
     students_table = [
         {
@@ -261,6 +325,9 @@ def _build_report_payload(session) -> dict:
             "help_requests": len(s.help_requests),
             "hints": int(s.hints_given),
             "teacher_nudges": len(s.teacher_nudges),
+            "steps_done": len(s.completed_steps),
+            "steps_total": n_steps,
+            "progress": round(float(s.progress), 1),
             "quiz": (
                 {
                     "correct": s.quiz_correct,
@@ -288,6 +355,7 @@ def _build_report_payload(session) -> dict:
     return {
         "session_id": session.session_id,
         "task_description": session.task_description,
+        "task_steps": list(getattr(session, "task_steps", None) or []),
         "task_level": session.task_level,
         "created_at": start_ts,
         "ended_at": end_ts,
@@ -299,7 +367,7 @@ def _build_report_payload(session) -> dict:
             "labels": timeline_labels,
             "data": timeline_data,
         },
-        "hardest_topics": hardest_topics,
+        "missed_questions": missed_questions,
         "students": students_table,
         "quiz_results": quiz_rows,
     }
@@ -345,7 +413,7 @@ async def create_session_from_pdf(
 
     result = await _extract_uploaded_pdf(file)
 
-    generated_task_description = await generate_task_description_from_pdf(
+    generated_task_description, task_steps = await generate_task_from_pdf(
         pdf_text=result["text"],
         mode=normalized_mode,
         difficulty=normalized_quiz_difficulty,
@@ -353,6 +421,7 @@ async def create_session_from_pdf(
 
     session, teacher_token = session_manager.create_session(generated_task_description, normalized_level)
     session.launched = False  # the teacher reviews the generated task first
+    session.task_steps = task_steps
     session.quiz_mode_preference = normalized_mode
     session.quiz_difficulty_preference = normalized_quiz_difficulty
     session.pdf_text = result["text"]
@@ -367,6 +436,7 @@ async def create_session_from_pdf(
         "join_url": f"/student.html?session={session.session_id}",
         "teacher_token": teacher_token,
         "task_description": session.task_description,
+        "task_steps": session.task_steps,
         "analysis": session.pdf_analysis,
         "filename": file.filename,
         "pages": result["pages"],
@@ -432,10 +502,41 @@ async def update_task(session_id: str, req: UpdateTaskRequest, request: Request)
     if not description:
         raise HTTPException(400, "Task description cannot be empty")
     session.task_description = description
+    if req.task_steps is not None:
+        steps = [s.strip() for s in req.task_steps if isinstance(s, str) and s.strip()][:MAX_TASK_STEPS]
+        if steps != session.task_steps:
+            session.task_steps = steps
+            for student in session.students.values():
+                student.reset_steps()
     session_manager.persist_session(session)
-    await sio.emit("task_updated", {"task_description": description}, room=session_id)
+    await sio.emit(
+        "task_updated",
+        {"task_description": description, "task_steps": session.task_steps},
+        room=session_id,
+    )
     await broadcast_dashboard(session)
-    return {"task_description": description}
+    return {"task_description": description, "task_steps": session.task_steps}
+
+
+@app.post("/api/sessions/{session_id}/steps/done")
+async def mark_step_done(session_id: str, req: MarkStepDoneRequest, request: Request):
+    """A student marks one task step as done. Idempotent; progress = done / total steps."""
+    session = session_manager.get_session(session_id)
+    if session is None:
+        raise HTTPException(404, "Session not found")
+    require_student(request, session, req.student_id)
+    if not session.active:
+        raise HTTPException(409, "Session has ended")
+    student = session.students[req.student_id]
+    if not student.mark_step_done(req.step, len(session.task_steps)):
+        raise HTTPException(400, f"Unknown step {req.step}; this task has {len(session.task_steps)} step(s)")
+    session_manager.persist_session(session)
+    await broadcast_dashboard(session)
+    return {
+        "completed_steps": student.completed_steps,
+        "total_steps": len(session.task_steps),
+        "progress": round(student.progress, 1),
+    }
 
 
 @app.post("/api/sessions/{session_id}/launch")
@@ -507,7 +608,7 @@ async def end_session(session_id: str, request: Request):
     require_teacher(request, session)
     session_manager.end_session(session_id)
     analytics = _build_session_analytics(session)
-    summary = "Session ended. Review class metrics and chart for collective performance insights."
+    summary = _build_session_summary(session, analytics, _missed_questions(session, session.quiz_results))
     session.summary = summary
     session.analytics = analytics
     session_manager.persist_session(session)

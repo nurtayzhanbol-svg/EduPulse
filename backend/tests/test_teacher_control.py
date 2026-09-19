@@ -224,7 +224,7 @@ async def test_public_session_endpoint_exposes_no_student_data(client):  # noqa:
     r = await client.get(f"/api/sessions/{sid}")
     assert r.status_code == 200
     body = r.json()
-    assert set(body) == {"session_id", "task_description", "task_level", "pause_threshold_seconds",
+    assert set(body) == {"session_id", "task_description", "task_steps", "task_level", "pause_threshold_seconds",
                          "has_material", "active", "launched", "student_count"}
     assert body["student_count"] == 1
     raw = json.dumps(body)
